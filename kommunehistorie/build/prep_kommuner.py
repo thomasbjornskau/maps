@@ -6,6 +6,9 @@ Inndata i build/input/:
   Basisdata_0000_Norge_25833_Kommuner_GeoJSON.zip                      – Kartverket, gjeldende
   changes.json                                                         – Klass 131, endringer
   ne_10m_land.geojson                                                  – Natural Earth, grov kystlinje
+  Basisdata_0000_Norge_25833_KommunerÅÅÅÅ_FGDB.zip (valgfritt)          – Kartverket, historiske årganger
+
+build/kjente_aar.json gir årstall for overføringer som bare kan dateres fra merknadene i Klass.
 
 Bruk:
   python build/prep_kommuner.py
@@ -51,14 +54,24 @@ def main():
     a = ap.parse_args()
     errors = []
     with tempfile.TemporaryDirectory() as tmp:
-        gdb_src = next((p for p in [*INPUT.glob('*.gdb'), *INPUT.glob('*.zip')] if 'Kommuner_GeoJSON' not in p.name), None)
+        gdb_src = next((p for p in [*INPUT.glob('*.gdb'), *INPUT.glob('*.zip')] if not p.name.startswith('Basisdata')), None)
         if not gdb_src: sys.exit('Fant ikke SSBs geodatabase i input/')
         gdb = unpack(gdb_src, tmp, '*.gdb')
         kv = unpack(find('*Kommuner_GeoJSON*'), tmp, '*Kommuner*.geojson')
         changes = json.load(open(find('changes*.json'), encoding='utf-8'))['codeChanges']
+        kv_years = {}
+        for z in sorted(INPUT.glob('*Kommuner[12][0-9][0-9][0-9]_FGDB.zip')):
+            y = int(z.name.split('Kommuner')[1][:4])
+            d = Path(tmp) / f'kv{y}'
+            with zipfile.ZipFile(z) as zz: zz.extractall(d)
+            g = gpd.read_file(next(d.rglob('*.gdb')), layer='kommune', engine='pyogrio', columns=['kommunenummer'])
+            kv_years[y] = {c: shapely.union_all(list(gg.geometry)) for c, gg in g.groupby('kommunenummer')}
+        print('   Kartverket-årganger:', sorted(kv_years) or 'ingen')
+        kj = INPUT.parent / 'kjente_aar.json'
+        known = {tuple(k.split('>')): v for k, v in json.load(open(kj, encoding='utf-8')).get('overforinger', {}).items()} if kj.exists() else {}
 
         print('1/5 Tilstander …')
-        states, kv26, by_year = build_states(str(gdb), str(kv), changes)
+        states, kv26, by_year, moved, _ = build_states(str(gdb), str(kv), changes, kv_years, known)
         exp = expected_codes(states, by_year)
         tot0 = sum(p.area for p in states[0]['polys'].values())
         for s in states:
@@ -85,7 +98,7 @@ def main():
         src = Path(tmp) / 'atoms.geojson'; gdf.to_file(src, driver='GeoJSON', engine='pyogrio')
         out = DATA / 'atomer.topo.json'
         cmd = [npx(), 'mapshaper', '-i', str(src), 'snap-interval=0.5', '-proj', 'init=EPSG:25833',
-               '-simplify', f'interval={a.toleranse}', 'planar', 'keep-shapes', '-clean',
+               '-simplify', f'interval={a.toleranse}', 'planar', 'keep-shapes', '-clean', 'gap-fill-area=0', 'sliver-control=0',
                '-rename-layers', 'atomer', '-proj', 'wgs84',
                '-o', 'format=topojson', 'quantization=1000000', str(out)]
         r = subprocess.run(cmd, capture_output=True, text=True, cwd=Path(__file__).parent)
@@ -100,7 +113,7 @@ def main():
     land_b = land.buffer(a.landbuffer); shapely.prepare(land_b)
     walls, wstats = build_walls(topo, codes, states, land_b)
     names, per_year = names_by_year(states, by_year)
-    ev = events(by_year, [(x['c'], x['g'].area) for x in atoms], states)
+    ev = events(by_year, [(x['c'], x['g'].area) for x in atoms], states, {2024: 2022} if 2021 in kv_years else {})
     lab = labels(states, land)
 
     print('5/5 Skriver filer …')
@@ -118,7 +131,7 @@ def main():
         b = (DATA / f).read_bytes()
         print(f'  {f}: {len(b):,} byte ({len(gzip.compress(b, 9)):,} komprimert)'.replace(',', ' '))
     print(f"  {len(states)} tilstander, {len(atoms)} atomer, {len(walls)} murstykker ({wstats['bare i sjø']} rene sjøgrenser utelatt)")
-    print(f"  {len(ev)} hendelser, {len(lab)} navnepunkt")
+    print(f"  {len(ev)} hendelser, {len(lab)} navnepunkt, {len(moved)} arealoverføringer fra Kartverket-årgangene")
 
 
 if __name__ == '__main__':

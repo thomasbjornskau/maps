@@ -1,0 +1,7 @@
+{
+  "_forklaring": "Arealoverføringer mellom Kartverkets årganger 2021 og 2024 kan ikke dateres fra filene alene. Her står årstall fra merknadene i Klass (kommuneinndeling 2026). Nøkkel: 'fra-kode>til-kode' i Kartverket-koder.",
+  "overforinger": {
+    "4618>4619": 2022,
+    "3405>3440": 2022
+  }
+}

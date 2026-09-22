@@ -32,7 +32,12 @@ export function makeHistory(D) {
     const y = ev.y, out = [];
     if (ev.t) {
       const [p, n, a] = ev.t;
-      out.push({ kind: 'overforing', codes: [p, n], text: `${nameAt(p, y)} avga et område til ${nameAt(n, y)} (ca. ${fmtKm(a)} km² inkl. sjø)` });
+      const when = ev.u ? ` Endringen skjedde en gang mellom ${ev.u[0]} og ${ev.u[1]}.` : '';
+      const gone = !N[p] || !N[p].some(r => y >= r[0] && y <= r[1]);
+      const text = gone
+        ? `Et område fra ${nameAt(p, y - 1)} (ca. ${fmtKm(a)} km² inkl. sjø) ble lagt til ${nameAt(n, y)}.${when}`
+        : `${nameAt(p, y)} avga et område til ${nameAt(n, y)} (ca. ${fmtKm(a)} km² inkl. sjø).${when}`;
+      out.push({ kind: 'overforing', codes: [p, n], text });
       return out;
     }
     const T = new Map(), Sx = new Map();

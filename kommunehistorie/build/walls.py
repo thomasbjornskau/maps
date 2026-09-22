@@ -109,9 +109,11 @@ def names_by_year(states, changes_by_year):
     return dict(runs), per_year
 
 
-def events(changes_by_year, atoms_codes, states):
-    """Klass-endringer gruppert i sammenhengende komponenter per år, pluss
-    grensejusteringer som bare finnes i geometrien."""
+def events(changes_by_year, atoms_codes, states, uncertain_from=None):
+    """Klass-endringer gruppert i sammenhengende komponenter per år, pluss arealoverføringer
+    som bare finnes i geometrien. uncertain_from: {år: tidligste år} for overføringer som bare
+    kan dateres til et intervall."""
+    uncertain_from = uncertain_from or {}
     out = []
     for y in sorted(changes_by_year):
         links = [(e['oldCode'], e['newCode']) for e in changes_by_year[y]]
@@ -124,19 +126,20 @@ def events(changes_by_year, atoms_codes, states):
         comp = collections.defaultdict(list)
         for o, n in links: comp[f('o' + o)].append([o, n])
         for c in comp.values(): out.append({'y': y, 'l': sorted(c)})
-    # Geometriske overføringer mellom kommuner som finnes begge år, uten Klass-kobling
-    klass = {(y, o, n) for y, ch in changes_by_year.items() for e in ch for o, n in [(e['oldCode'], e['newCode'])]}
+    klass = {(y, e['oldCode'], e['newCode']) for y, ch in changes_by_year.items() for e in ch}
     for k in range(1, len(states)):
         y = states[k]['y0']
-        prev_codes, cur_codes = set(states[k - 1]['polys']), set(states[k]['polys'])
         moved = collections.Counter()
         for codes, area in atoms_codes:
             p, n = codes[k - 1], codes[k]
-            if p != n and p in cur_codes and n in prev_codes and (y, p, n) not in klass:
+            if p != n and (y, p, n) not in klass:
                 moved[(p, n)] += area
         for (p, n), a in moved.items():
+            # Ren omnummerering uten Klass-lenke finnes ikke; alt her er flyttet areal
             if a >= 0.05e6:
-                out.append({'y': y, 't': [p, n, round(a / 1e6, 2)]})
+                ev = {'y': y, 't': [p, n, round(a / 1e6, 2)]}
+                if y in uncertain_from: ev['u'] = [uncertain_from[y], y]
+                out.append(ev)
     return out
 
 

@@ -4,8 +4,8 @@
   "bygget": "2026-09-22",
   "toleranse_m": 75,
   "landbuffer_m": 1000,
-  "atomer": 491,
-  "murer": 1194,
+  "atomer": 512,
+  "murer": 1302,
   "filer": {
     "topologi": "atomer.topo.json",
     "historikk": "historikk.json"
