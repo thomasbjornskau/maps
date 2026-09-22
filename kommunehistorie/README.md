@@ -78,7 +78,12 @@ Kartverket har ikke årganger for 2022 og 2023. Overføringer mellom 2021- og 20
 Hvert grensestykke lagres én gang, med årene det er kommune-, fylkes- eller riksgrense.
 
 **Murene** klippes mot en grov kystlinje (Natural Earth 1:10 mill., bufret 1 km), slik at de
-står på land. Høyden styres av et flytende år under animasjonen (`wallHeight` i `style.js`).
+står på land. Bredden regnes i skjermpiksler (`WALL_PX` i `config.js`, 1–2 px), og murgeometrien
+bygges på nytt når zoomnivået (heltall) eller breddegraden endrer seg merkbart.
+
+**Animasjonen** bruker to kilder. `walls` har alle murstykker og får ny høyde én gang per årsskifte.
+`wallsAnim` får bare stykkene som endrer seg mellom de to årene, og bare den oppdateres hvert bilde.
+Et vanlig årsskifte animerer 0,3–4 % av segmentene, 2020 rundt 19 %.
 
 **Historikken** bygger på endringstabellen i Klass. Arealoverføringer uten kodeendring (f.eks.
 Alstahaug → Vefsn 1995, Rauma → Vestnes 2021) er funnet ved å sammenligne årgangene.
@@ -87,7 +92,7 @@ Alstahaug → Vefsn 1995, Rauma → Vestnes 2021) er funnet ved å sammenligne �
 
 - **Ikke sett i nettleser av utvikleren.** Stil og uttrykk er validert mot MapLibres
   stilspesifikasjon, og data- og historikkmodulene er testet i Node, men selve renderingen er ikke sett.
-- **Animasjonen** oppdaterer murhøyden hvert bilde. Med rundt 1 350 murer bør det gå greit, men det er ikke målt.
+- **Ytelsen** er ikke målt i nettleser. Animasjonen er likevel bygget slik at bare murene som endrer seg, oppdateres hvert bilde.
 - **Overføringer under 0,25 km²** (eller smalere enn om lag 100 m) er under kartets oppløsning og tas ikke med, for eksempel Lillehammer → Øyer i 2022.
 - **Udaterte endringer** mellom Kartverkets 2021- og 2024-fil ligger i 2024 med merknad, med mindre `kjente_aar.json` sier noe annet.
 - **Arealtall** for overføringer inkluderer sjø.

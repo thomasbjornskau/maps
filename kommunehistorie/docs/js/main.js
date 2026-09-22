@@ -1,13 +1,13 @@
 // Oppstart og samspill: kart, tidslinje, murer, valg og historikk.
 import { maplibregl } from './lib.js';
 import { S, syncURL } from './state.js';
-import { HOME, widthFor } from './config.js';
+import { HOME, halfWidthFor, widthKey } from './config.js';
 import { fetchJSON, prepare, wallFeatures, labelFeatures, atomAt } from './data.js';
 import { makeHistory } from './history.js';
-import { buildStyle, wallHeight, wallColor, wallFilter, applyTheme } from './style.js';
+import { buildStyle, staticHeightIdle, staticHeightMoving, staticColor, animHeight, animColor, wallFilter, applyTheme } from './style.js';
 import { $, renderHeader, renderYear, renderKommune, renderLegend, renderTicks } from './ui.js';
 
-let D, H, T = null, anim = 0, width = null, hoverCode = null, selCode = null, playing = null;
+let D, H, T = null, anim = 0, wKey = null, WFC = null, span = null, hoverCode = null, selCode = null, playing = null;
 const tip = $('#tip');
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -17,26 +17,47 @@ map.on('error', e => console.warn('Kartfeil:', e?.error?.message));
 const dataP = Promise.all([fetchJSON('data/meta.json'), fetchJSON('data/atomer.topo.json'), fetchJSON('data/historikk.json')]);
 
 /* ---------- Murer ---------- */
+const EMPTY = { type: 'FeatureCollection', features: [] };
 function rebuildWalls(force) {
-  const w = widthFor(map.getZoom());
-  if (!force && w === width) return;
-  width = w;
-  map.getSource('walls').setData(wallFeatures(D, w));
+  const z = map.getZoom(), lat = map.getCenter().lat, key = widthKey(z, lat);
+  if (!force && key === wKey) return;
+  wKey = key;
+  WFC = wallFeatures(D, halfWidthFor(z, lat));
+  map.getSource('walls').setData(WFC);
+  if (span) setAnimSet(span[0], span[1]);
 }
-function paintWalls(animating) {
-  map.setPaintProperty('walls', 'fill-extrusion-height', wallHeight(T, S.year, S, animating));
-  map.setPaintProperty('walls', 'fill-extrusion-color', wallColor(S.year, S, D.minYear, animating));
+// Legger murene som endrer seg mellom lo og hi i animasjonskilden (som regel en håndfull).
+function setAnimSet(lo, hi) {
+  span = [lo, hi];
+  const moving = WFC.features.filter(f => {
+    const { y0, y1 } = f.properties;
+    return y1 >= lo && y0 <= hi && !(y0 <= lo && y1 >= hi);
+  });
+  map.getSource('wallsAnim').setData({ type: 'FeatureCollection', features: moving });
+}
+function paintIdle() {
+  span = null;
+  map.getSource('wallsAnim').setData(EMPTY);
+  map.setPaintProperty('walls', 'fill-extrusion-height', staticHeightIdle(S.year, S));
+  map.setPaintProperty('walls', 'fill-extrusion-color', staticColor(S.year, S, D.minYear));
 }
 function animateTo(target) {
   cancelAnimationFrame(anim);
   const from = T ?? target;
-  if (reduce || from === target) { T = target; paintWalls(false); return; }
+  if (reduce || from === target) { T = target; paintIdle(); return; }
+  const lo = Math.floor(Math.min(from, target)), hi = Math.ceil(Math.max(from, target));
+  if (!span || span[0] !== lo || span[1] !== hi) {
+    setAnimSet(lo, hi);
+    map.setPaintProperty('walls', 'fill-extrusion-height', staticHeightMoving(lo, hi, S));
+    map.setPaintProperty('walls', 'fill-extrusion-color', animColor(S));
+    map.setPaintProperty('walls-anim', 'fill-extrusion-color', animColor(S));
+  }
   const dur = Math.min(1800, 350 + 170 * Math.abs(target - from)), t0 = performance.now();
   const step = now => {
     const u = Math.min(1, (now - t0) / dur), e = u < .5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
     T = from + (target - from) * e;
-    paintWalls(u < 1);
-    if (u < 1) anim = requestAnimationFrame(step);
+    map.setPaintProperty('walls-anim', 'fill-extrusion-height', animHeight(T, S));
+    if (u < 1) anim = requestAnimationFrame(step); else paintIdle();
   };
   anim = requestAnimationFrame(step);
 }
@@ -71,7 +92,7 @@ function setYear(y, animate = true) {
   pickSelection(); applyFilters();
   map.getSource('labels').setData(labelFeatures(D, y, H.nameAt));
   renderHeader(D, y); renderPanel();
-  if (animate) animateTo(y); else { T = y; paintWalls(false); }
+  if (animate) animateTo(y); else { cancelAnimationFrame(anim); T = y; paintIdle(); }
   syncURL();
 }
 
@@ -127,24 +148,24 @@ function wireUI() {
   const toggles = { swKommune: 'kommune', swFylke: 'fylke', swRike: 'rike' };
   for (const [id, key] of Object.entries(toggles)) {
     const el = $('#' + id); el.checked = S[key];
-    el.onchange = () => { S[key] = el.checked; map.setFilter('walls', wallFilter(S)); renderLegend(S); syncURL(); };
+    el.onchange = () => { S[key] = el.checked; map.setFilter('walls', wallFilter(S)); map.setFilter('walls-anim', wallFilter(S)); renderLegend(S); syncURL(); };
   }
   const swNavn = $('#swNavn'); swNavn.checked = S.navn;
   swNavn.onchange = () => { S.navn = swNavn.checked; map.setLayoutProperty('labels', 'visibility', S.navn ? 'visible' : 'none'); syncURL(); };
   const swNy = $('#swNy'); swNy.checked = S.ny;
-  swNy.onchange = () => { S.ny = swNy.checked; map.setLayoutProperty('k-new', 'visibility', S.ny ? 'visible' : 'none'); paintWalls(false); renderLegend(S); syncURL(); };
+  swNy.onchange = () => { S.ny = swNy.checked; map.setLayoutProperty('k-new', 'visibility', S.ny ? 'visible' : 'none'); paintIdle(); renderLegend(S); syncURL(); };
   const swBorte = $('#swBorte'); swBorte.checked = S.borte;
-  swBorte.onchange = () => { S.borte = swBorte.checked; paintWalls(false); renderLegend(S); syncURL(); };
+  swBorte.onchange = () => { S.borte = swBorte.checked; paintIdle(); renderLegend(S); syncURL(); };
   const hm = $('#hMult'), fmt = v => v.toLocaleString('nb-NO', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '×';
   hm.value = S.k; $('#hMultV').textContent = fmt(S.k);
-  hm.oninput = () => { S.k = +hm.value; $('#hMultV').textContent = fmt(S.k); paintWalls(false); syncURL(); };
+  hm.oninput = () => { S.k = +hm.value; $('#hMultV').textContent = fmt(S.k); cancelAnimationFrame(anim); T = S.year; paintIdle(); syncURL(); };
 
   document.querySelectorAll('.theme button').forEach(b => {
     b.setAttribute('aria-pressed', b.dataset.t === S.tema);
     b.onclick = () => {
       S.tema = b.dataset.t;
       document.querySelectorAll('.theme button').forEach(x => x.setAttribute('aria-pressed', x === b));
-      applyTheme(map, S); paintWalls(false); renderLegend(S); syncURL();
+      applyTheme(map, S); cancelAnimationFrame(anim); T = S.year; paintIdle(); renderLegend(S); syncURL();
     };
   });
   document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
@@ -157,7 +178,7 @@ function wireUI() {
   $('#compass').onclick = () => map.easeTo({ bearing: 0, duration: 600 });
   $('#zin').onclick = () => map.zoomIn(); $('#zout').onclick = () => map.zoomOut();
   map.on('rotate', () => { $('#compass svg').style.transform = `rotate(${-map.getBearing()}deg)`; });
-  map.on('zoomend', () => rebuildWalls(false));
+  map.on('moveend', () => rebuildWalls(false));
   const dlg = $('#dlg');
   $('#aboutBtn').onclick = $('#aboutLink').onclick = () => dlg.showModal();
   $('#dlgX').onclick = () => dlg.close();
@@ -173,7 +194,7 @@ map.on('load', async () => {
     document.documentElement.dataset.tema = S.tema;
     map.getSource('atoms').setData(D.atoms);
     rebuildWalls(true);
-    map.setFilter('walls', wallFilter(S));
+    map.setFilter('walls', wallFilter(S)); map.setFilter('walls-anim', wallFilter(S));
     applyTheme(map, S);
     renderTicks(H, D); renderLegend(S);
     wireUI();

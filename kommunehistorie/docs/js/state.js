@@ -8,7 +8,7 @@ export const S = {
   year: +q.get('aar') || null,
   sel: pt && pt.length === 2 && pt.every(Number.isFinite) ? pt : null,
   tema: oneOf(q.get('tema'), ['dag', 'kveld', 'natt'], 'dag'),
-  k: Math.min(3, Math.max(0.3, +(q.get('k') || 1) || 1)),
+  k: Math.min(5, Math.max(0.3, +(q.get('k') || 1) || 1)),
   kommune: flag('kommune', true), fylke: flag('fylke', true), rike: flag('rike', true),
   navn: flag('navn', true), ny: flag('ny', true), borte: flag('borte', true)
 };

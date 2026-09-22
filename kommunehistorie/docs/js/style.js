@@ -13,7 +13,7 @@ export function buildStyle(S) {
       omt: { type: 'vector', url: 'https://tiles.openfreemap.org/planet' },
       dem: { type: 'raster-dem', url: 'https://tiles.mapterhorn.com/tilejson.json' },
       hs: { type: 'raster-dem', url: 'https://tiles.mapterhorn.com/tilejson.json' },
-      atoms: { type: 'geojson', data: EMPTY }, walls: { type: 'geojson', data: EMPTY }, labels: { type: 'geojson', data: EMPTY }
+      atoms: { type: 'geojson', data: EMPTY }, walls: { type: 'geojson', data: EMPTY }, wallsAnim: { type: 'geojson', data: EMPTY }, labels: { type: 'geojson', data: EMPTY }
     },
     terrain: { source: 'dem', exaggeration: 1.25 },
     sky: T.sky, light: T.light,
@@ -27,7 +27,10 @@ export function buildStyle(S) {
       { id: 'k-hover', type: 'fill', source: 'atoms', filter: ['==', ['get', 's0'], ''], paint: { 'fill-color': T.hover, 'fill-opacity': .12 } },
       { id: 'k-sel', type: 'fill', source: 'atoms', filter: ['==', ['get', 's0'], ''], paint: { 'fill-color': T.sel, 'fill-opacity': .26 } },
       { id: 'k-pick', type: 'fill', source: 'atoms', paint: { 'fill-color': '#000', 'fill-opacity': 0 } },
+      // Stående murer: alle murstykker, høyden settes én gang per årsskifte
       { id: 'walls', type: 'fill-extrusion', source: 'walls', paint: { 'fill-extrusion-color': T.wall[KOMMUNE], 'fill-extrusion-height': 0, 'fill-extrusion-base': 0, 'fill-extrusion-opacity': T.op, 'fill-extrusion-vertical-gradient': true } },
+      // Murer i bevegelse: bare stykkene som endrer seg i overgangen, oppdateres hvert bilde
+      { id: 'walls-anim', type: 'fill-extrusion', source: 'wallsAnim', paint: { 'fill-extrusion-color': T.wall[KOMMUNE], 'fill-extrusion-height': 0, 'fill-extrusion-base': 0, 'fill-extrusion-opacity': T.op, 'fill-extrusion-vertical-gradient': true } },
       {
         id: 'labels', type: 'symbol', source: 'labels', layout: {
           'text-field': ['get', 'n'], 'text-font': ['Noto Sans Regular'], visibility: vis(S.navn),
@@ -38,26 +41,35 @@ export function buildStyle(S) {
   };
 }
 
-// Høyden vokser fram mellom år y0−1 og y0, og synker mellom y1 og y1+1.
-// T er et flytende år under animasjon; Y er året som er valgt.
-export function wallHeight(T, Y, S, animating) {
-  const grow = ['*',
-    ['min', 1, ['max', 0, ['-', T, ['-', ['get', 'y0'], 1]]]],
-    ['min', 1, ['max', 0, ['-', ['+', ['get', 'y1'], 1], T]]]];
-  const ghost = S.borte && !animating ? ['case', ['==', ['get', 'y1'], Y - 1], GHOST, 0] : 0;
-  const f = ['*', ['max', grow, ghost], ['match', ['get', 't'], FYLKE, TYPE_FACTOR[FYLKE], RIKE, TYPE_FACTOR[RIKE], TYPE_FACTOR[KOMMUNE]]];
-  return ['interpolate', ['exponential', 1.6], ['zoom'], ...HEIGHT_STOPS.flatMap(([z, h]) => [z, ['*', h * S.k, f]])];
-}
+const TYPE = ['match', ['get', 't'], FYLKE, TYPE_FACTOR[FYLKE], RIKE, TYPE_FACTOR[RIKE], TYPE_FACTOR[KOMMUNE]];
+const byZoom = (S, f) => ['interpolate', ['exponential', 1.6], ['zoom'], ...HEIGHT_STOPS.flatMap(([z, h]) => [z, ['*', h * S.k, f]])];
+const baseColor = T => ['match', ['get', 't'], FYLKE, T.wall[FYLKE], RIKE, T.wall[RIKE], T.wall[KOMMUNE]];
 
-export function wallColor(Y, S, minYear, animating) {
+// Stående murer i ro på år Y: full høyde hvis muren finnes, lav «ruin» hvis den forsvant i år.
+export function staticHeightIdle(Y, S) {
+  const ghost = S.borte ? ['case', ['==', ['get', 'y1'], Y - 1], GHOST, 0] : 0;
+  return byZoom(S, ['*', TYPE, ['case', ['all', ['<=', ['get', 'y0'], Y], ['>=', ['get', 'y1'], Y]], 1, ghost]]);
+}
+// Stående murer under overgang lo→hi: bare de som finnes hele veien står; resten tar animasjonslaget.
+export function staticHeightMoving(lo, hi, S) {
+  return byZoom(S, ['*', TYPE, ['case', ['all', ['<=', ['get', 'y0'], lo], ['>=', ['get', 'y1'], hi]], 1, 0]]);
+}
+export function staticColor(Y, S, minYear) {
   const T = THEME[S.tema];
-  const base = ['match', ['get', 't'], FYLKE, T.wall[FYLKE], RIKE, T.wall[RIKE], T.wall[KOMMUNE]];
-  if (animating) return base;
   return ['case',
     ['all', S.ny && Y > minYear, ['==', ['get', 'y0'], Y]], T.ny,
     ['==', ['get', 'y1'], Y - 1], T.borte,
-    base];
+    baseColor(T)];
 }
+// Murer i bevegelse: høyden vokser fram mellom år y0−1 og y0 og synker mellom y1 og y1+1.
+// T er et flytende år.
+export function animHeight(T, S) {
+  const grow = ['*',
+    ['min', 1, ['max', 0, ['-', T, ['-', ['get', 'y0'], 1]]]],
+    ['min', 1, ['max', 0, ['-', ['+', ['get', 'y1'], 1], T]]]];
+  return byZoom(S, ['*', TYPE, grow]);
+}
+export const animColor = S => baseColor(THEME[S.tema]);
 
 export function wallFilter(S) {
   const types = [S.kommune && KOMMUNE, S.fylke && FYLKE, S.rike && RIKE].filter(Boolean);
@@ -71,7 +83,7 @@ export function applyTheme(map, S) {
   P('water', 'fill-color', t.water);
   P('hill', 'hillshade-shadow-color', t.shadow); P('hill', 'hillshade-highlight-color', t.hi);
   P('k-new', 'fill-color', t.tint); P('k-hover', 'fill-color', t.hover); P('k-sel', 'fill-color', t.sel);
-  P('walls', 'fill-extrusion-opacity', t.op);
+  P('walls', 'fill-extrusion-opacity', t.op); P('walls-anim', 'fill-extrusion-opacity', t.op);
   P('labels', 'text-color', t.lab); P('labels', 'text-halo-color', t.halo);
   try { map.setSky(t.sky); } catch (e) { }
   try { map.setLight(t.light); } catch (e) { }

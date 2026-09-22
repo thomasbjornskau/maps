@@ -2,13 +2,20 @@
 export const KOMMUNE = 1, FYLKE = 2, RIKE = 3;
 
 // Murhøyde i meter ved ulike zoomnivåer (før typefaktor og brukerens forsterkning)
-export const HEIGHT_STOPS = [[4, 7000], [6, 3000], [8, 1100], [10, 420], [12, 160], [14, 60]];
+export const HEIGHT_STOPS = [[4, 14000], [6, 6000], [8, 2200], [10, 840], [12, 320], [14, 120]];
 export const TYPE_FACTOR = { [KOMMUNE]: 1, [FYLKE]: 1.9, [RIKE]: 2.4 };
 export const GHOST = 0.14;          // høyde (andel) for grenser som forsvant i år
 
-// Halv murbredde i meter per zoomintervall; murene bygges på nytt når intervallet skifter
-export const WIDTH_BUCKETS = [[5.5, 1500], [7.2, 700], [9, 280], [11, 110], [99, 45]];
-export const widthFor = z => WIDTH_BUCKETS.find(([zz]) => z < zz)[1];
+// Murbredde i skjermpiksler. Bredden i meter regnes ut fra zoom og breddegrad,
+// og murene bygges på nytt når zoomnivået (heltall) eller breddegraden endrer seg merkbart.
+export const WALL_PX = 1.4;
+const M_PER_PX_Z0 = 40075016.686 / 512;           // MapLibre bruker 512-pikslers fliser
+export function halfWidthFor(z, lat) {
+  const zMid = Math.floor(z) + 0.5;                 // midt i heltallsintervallet
+  const mpp = M_PER_PX_Z0 * Math.cos(lat * Math.PI / 180) / 2 ** zMid;
+  return Math.max(2, mpp * WALL_PX / 2);
+}
+export const widthKey = (z, lat) => `${Math.floor(z)}|${Math.round(lat / 4)}`;
 
 export const THEME = {
   dag: {
