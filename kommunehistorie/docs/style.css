@@ -206,3 +206,19 @@ summary{cursor:pointer;color:var(--ink-2);padding:6px 0}
   #tlYear{font-size:24px;min-width:52px}
   .right{bottom:calc(110px + env(safe-area-inset-bottom,0px))}
 }
+
+/* ===== Navigasjon øverst i panelet ===== */
+.panel{top:250px}
+.topnav{padding:12px 12px 4px;border-bottom:1px solid var(--line);display:grid;gap:8px}
+.yearnav{display:flex;gap:4px;align-items:stretch}
+.yearnav button{flex:0 0 34px;border:0;background:var(--chip);border-radius:9px;font-size:17px;color:var(--ink);line-height:1}
+.yearnav button:disabled{opacity:.35;cursor:default}
+.yearnav select{flex:1;min-width:0;border:1px solid var(--line);border-radius:9px;background:var(--card-solid);color:var(--ink);
+  font-family:var(--serif);font-size:22px;font-weight:500;text-align:center;text-align-last:center;padding:4px 6px}
+.fylkenav{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-2)}
+.fylkenav label{font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:11px}
+.fylkenav select{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;background:var(--card-solid);color:var(--ink);padding:6px 8px;font-size:13.5px}
+.fylkenav button{border:0;background:var(--chip);border-radius:8px;width:30px;height:30px;font-size:17px;color:var(--ink-2)}
+.legend .h3b{margin-top:12px}
+.legend .lg i{width:26px;border-radius:2px}
+.legend .lg i.fillsw{height:12px!important;width:26px;border-radius:3px}

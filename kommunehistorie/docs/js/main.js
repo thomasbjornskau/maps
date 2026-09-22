@@ -1,78 +1,79 @@
-// Oppstart og samspill: kart, tidslinje, murer, valg og historikk.
+// Oppstart og samspill: kart, årsvalg, fylkesfilter, valg av kommune og historikk.
 import { maplibregl } from './lib.js';
 import { S, syncURL } from './state.js';
-import { HOME, halfWidthFor, widthKey } from './config.js';
-import { fetchJSON, prepare, wallFeatures, labelFeatures, atomAt } from './data.js';
+import { HOME, FYLKER } from './config.js';
+import { fetchJSON, prepare, lineFeatures, linesInFylke, fylkeBounds, fylkerIn, labelFeatures, atomAt } from './data.js';
 import { makeHistory } from './history.js';
-import { buildStyle, staticHeightIdle, staticHeightMoving, staticColor, animHeight, animColor, wallFilter, applyTheme } from './style.js';
+import { buildStyle, applyYear, applyTheme } from './style.js';
 import { $, renderHeader, renderYear, renderKommune, renderLegend, renderTicks } from './ui.js';
 
-let D, H, T = null, anim = 0, wKey = null, WFC = null, span = null, hoverCode = null, selCode = null, playing = null;
+let D, H, LFC, hoverCode = null, selCode = null, playing = null, fylkeNow = null;
 const tip = $('#tip');
-const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const map = new maplibregl.Map({ container: 'map', hash: 'kart', maxPitch: 82, attributionControl: false, ...HOME, style: buildStyle(S) });
 map.on('error', e => console.warn('Kartfeil:', e?.error?.message));
-
 const dataP = Promise.all([fetchJSON('data/meta.json'), fetchJSON('data/atomer.topo.json'), fetchJSON('data/historikk.json')]);
 
-/* ---------- Murer ---------- */
-const EMPTY = { type: 'FeatureCollection', features: [] };
-function rebuildWalls(force) {
-  const z = map.getZoom(), lat = map.getCenter().lat, key = widthKey(z, lat);
-  if (!force && key === wKey) return;
-  wKey = key;
-  WFC = wallFeatures(D, halfWidthFor(z, lat));
-  map.getSource('walls').setData(WFC);
-  if (span) setAnimSet(span[0], span[1]);
+const kNow = () => D.yearState[S.year];
+const sKey = () => 's' + kNow();
+
+/* ---------- Fylkesfilter ---------- */
+// Fylket følger et punkt, slik at filteret overlever sammenslåinger og delinger av fylker.
+function resolveFylke() {
+  if (!S.fylke) return null;
+  const list = fylkerIn(D, kNow());
+  if (list.includes(S.fylke)) return S.fylke;
+  const f = S.fpt && atomAt(D, S.fpt[0], S.fpt[1]);
+  return f ? f.properties['f' + kNow()] : null;
 }
-// Legger murene som endrer seg mellom lo og hi i animasjonskilden (som regel en håndfull).
-function setAnimSet(lo, hi) {
-  span = [lo, hi];
-  const moving = WFC.features.filter(f => {
-    const { y0, y1 } = f.properties;
-    return y1 >= lo && y0 <= hi && !(y0 <= lo && y1 >= hi);
-  });
-  map.getSource('wallsAnim').setData({ type: 'FeatureCollection', features: moving });
-}
-function paintIdle() {
-  span = null;
-  map.getSource('wallsAnim').setData(EMPTY);
-  map.setPaintProperty('walls', 'fill-extrusion-height', staticHeightIdle(S.year, S));
-  map.setPaintProperty('walls', 'fill-extrusion-color', staticColor(S.year, S, D.minYear));
-}
-function animateTo(target) {
-  cancelAnimationFrame(anim);
-  const from = T ?? target;
-  if (reduce || from === target) { T = target; paintIdle(); return; }
-  const lo = Math.floor(Math.min(from, target)), hi = Math.ceil(Math.max(from, target));
-  if (!span || span[0] !== lo || span[1] !== hi) {
-    setAnimSet(lo, hi);
-    map.setPaintProperty('walls', 'fill-extrusion-height', staticHeightMoving(lo, hi, S));
-    map.setPaintProperty('walls', 'fill-extrusion-color', animColor(S));
-    map.setPaintProperty('walls-anim', 'fill-extrusion-color', animColor(S));
+function anchorFor(fylke) {
+  const k = kNow(), b = fylkeBounds(D, k, fylke);
+  if (!b) return null;
+  const cx = (b[0][0] + b[1][0]) / 2, cy = (b[0][1] + b[1][1]) / 2;
+  let best = null, bd = Infinity;
+  for (const l of D.labelsByState.get(k) || []) {
+    if (l.c.slice(0, 2) !== fylke) continue;
+    const d = (l.lon - cx) ** 2 + (l.lat - cy) ** 2;
+    if (d < bd) { bd = d; best = [l.lon, l.lat]; }
   }
-  const dur = Math.min(1800, 350 + 170 * Math.abs(target - from)), t0 = performance.now();
-  const step = now => {
-    const u = Math.min(1, (now - t0) / dur), e = u < .5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
-    T = from + (target - from) * e;
-    map.setPaintProperty('walls-anim', 'fill-extrusion-height', animHeight(T, S));
-    if (u < 1) anim = requestAnimationFrame(step); else paintIdle();
-  };
-  anim = requestAnimationFrame(step);
+  return best;
+}
+function fillFylkeSelect() {
+  const sel = $('#fylkeSel'), list = fylkerIn(D, kNow());
+  sel.innerHTML = `<option value="">Hele landet</option>` + list.map(c => `<option value="${c}">${FYLKER[c] || c} (${c})</option>`).join('');
+  sel.value = fylkeNow || '';
+  $('#fylkeX').hidden = !fylkeNow;
+}
+function applyFylke() {
+  fylkeNow = resolveFylke();
+  if (S.fylke && fylkeNow !== S.fylke) S.fylke = fylkeNow;
+  const k = kNow();
+  map.setFilter('mask', fylkeNow ? ['!=', ['get', 'f' + k], fylkeNow] : ['==', ['get', 'f0'], '__']);
+  map.getSource('lines').setData(fylkeNow ? linesInFylke(D, LFC, k, fylkeNow) : LFC);
+  map.getSource('labels').setData(labelFeatures(D, S.year, H.nameAt, fylkeNow));
+  fillFylkeSelect();
+}
+function chooseFylke(code) {
+  S.fylke = code || null;
+  S.fpt = code ? anchorFor(code) : null;
+  applyFylke();
+  if (code) {
+    const b = fylkeBounds(D, kNow(), code);
+    const left = innerWidth >= 900 ? 380 : 30;
+    if (b) map.fitBounds(b, { padding: { top: 60, bottom: 130, left, right: innerWidth >= 900 ? 340 : 30 }, duration: 1400, pitch: Math.min(map.getPitch(), 45), maxZoom: 10 });
+  } else map.flyTo({ ...HOME, curve: 1.3 });
+  syncURL();
 }
 
 /* ---------- År og valg ---------- */
-const stateKey = () => 's' + D.yearState[S.year];
-
 function pickSelection() {
   selCode = null;
   if (!S.sel) return;
   const f = atomAt(D, S.sel[0], S.sel[1]);
-  if (f) selCode = f.properties[stateKey()];
+  if (f && (!fylkeNow || f.properties['f' + kNow()] === fylkeNow)) selCode = f.properties[sKey()];
 }
 function applyFilters() {
-  const k = stateKey();
+  const k = sKey();
   map.setFilter('k-new', ['in', ['get', k], ['literal', H.changedCodes(S.year)]]);
   map.setFilter('k-hover', ['==', ['get', k], hoverCode || '']);
   map.setFilter('k-sel', ['==', ['get', k], selCode || '']);
@@ -81,46 +82,53 @@ function renderPanel() {
   if (selCode) {
     renderKommune(H, D, selCode, S.year);
     $('#selX').onclick = () => { S.sel = null; selCode = null; applyFilters(); renderPanel(); syncURL(); };
-  } else renderYear(H, D, S.year);
+  } else renderYear(H, D, S.year, fylkeNow);
 }
-function setYear(y, animate = true) {
-  y = Math.max(D.minYear, Math.min(D.maxYear, Math.round(y)));
-  S.year = y;
-  $('#yr').value = y; $('#tlYear').textContent = y;
+function syncYearControls() {
+  const y = S.year;
+  $('#yr').value = y; $('#tlYear').textContent = y; $('#yearSel').value = y;
   $('#yr').setAttribute('aria-valuetext', `${y}, ${D.counts[y]} kommuner`);
-  hoverCode = null;
-  pickSelection(); applyFilters();
-  map.getSource('labels').setData(labelFeatures(D, y, H.nameAt));
-  renderHeader(D, y); renderPanel();
-  if (animate) animateTo(y); else { cancelAnimationFrame(anim); T = y; paintIdle(); }
+  $('#prevY').disabled = y <= D.minYear; $('#nextY').disabled = y >= D.maxYear;
+  $('#prevEv').disabled = !H.eventYears.some(e => e < y); $('#nextEv').disabled = !H.eventYears.some(e => e > y && e <= D.maxYear);
+}
+function setYear(y) {
+  y = Math.max(D.minYear, Math.min(D.maxYear, Math.round(y)));
+  S.year = y; hoverCode = null;
+  applyFylke(); pickSelection(); applyFilters();
+  applyYear(map, S, y, D.minYear);
+  renderHeader(D, y); renderPanel(); syncYearControls();
   syncURL();
 }
 
 /* ---------- Avspilling ---------- */
 function stopPlay() { clearInterval(playing); playing = null; $('#play').setAttribute('aria-pressed', 'false'); $('#play').setAttribute('aria-label', 'Spill av'); }
 function startPlay() {
-  if (S.year >= D.maxYear) setYear(D.minYear, false);
+  if (S.year >= D.maxYear) setYear(D.minYear);
   $('#play').setAttribute('aria-pressed', 'true'); $('#play').setAttribute('aria-label', 'Pause');
-  playing = setInterval(() => { if (S.year >= D.maxYear) stopPlay(); else setYear(S.year + 1); }, 1400);
+  playing = setInterval(() => { if (S.year >= D.maxYear) stopPlay(); else setYear(S.year + 1); }, 1200);
 }
 
 /* ---------- Peking ---------- */
+function codeAt(point) {
+  const f = map.queryRenderedFeatures(point, { layers: ['k-pick'] })[0];
+  if (!f) return null;
+  if (fylkeNow && f.properties['f' + kNow()] !== fylkeNow) return null;
+  return f.properties[sKey()];
+}
 map.on('mousemove', e => {
   if (!D) return;
-  const f = map.queryRenderedFeatures(e.point, { layers: ['k-pick'] })[0];
-  const c = f ? f.properties[stateKey()] : null;
-  if (c !== hoverCode) { hoverCode = c; map.setFilter('k-hover', ['==', ['get', stateKey()], c || '']); }
+  const c = codeAt(e.point);
+  if (c !== hoverCode) { hoverCode = c; map.setFilter('k-hover', ['==', ['get', sKey()], c || '']); }
   map.getCanvas().style.cursor = c ? 'pointer' : '';
   if (c) {
     tip.innerHTML = `<b>${H.nameAt(c, S.year)}</b> · ${c}`;
     tip.style.display = 'block'; tip.style.left = (e.point.x + 14) + 'px'; tip.style.top = (e.point.y + 14) + 'px';
   } else tip.style.display = 'none';
 });
-map.on('mouseout', () => { hoverCode = null; if (D) map.setFilter('k-hover', ['==', ['get', stateKey()], '']); tip.style.display = 'none'; });
+map.on('mouseout', () => { hoverCode = null; if (D) map.setFilter('k-hover', ['==', ['get', sKey()], '']); tip.style.display = 'none'; });
 map.on('click', e => {
   if (!D) return;
-  const f = map.queryRenderedFeatures(e.point, { layers: ['k-pick'] })[0];
-  S.sel = f ? [e.lngLat.lng, e.lngLat.lat] : null;
+  S.sel = codeAt(e.point) ? [e.lngLat.lng, e.lngLat.lat] : null;
   pickSelection(); applyFilters(); renderPanel(); syncURL();
   if (innerWidth < 900 && S.sel) togglePanel(true);
 });
@@ -131,12 +139,22 @@ function togglePanel(force) {
   p.classList.toggle('open', on); $('#mobToggle').setAttribute('aria-expanded', on);
 }
 function wireUI() {
+  const ys = $('#yearSel'), ev = new Set(H.eventYears);
+  for (let y = D.minYear; y <= D.maxYear; y++) ys.add(new Option(ev.has(y) ? `${y} ●` : String(y), y));
+  ys.onchange = () => { stopPlay(); setYear(+ys.value); };
+  $('#prevY').onclick = () => { stopPlay(); setYear(S.year - 1); };
+  $('#nextY').onclick = () => { stopPlay(); setYear(S.year + 1); };
+  $('#prevEv').onclick = () => { stopPlay(); const y = [...H.eventYears].reverse().find(e => e < S.year); if (y) setYear(y); };
+  $('#nextEv').onclick = () => { stopPlay(); const y = H.eventYears.find(e => e > S.year && e <= D.maxYear); if (y) setYear(y); };
+  $('#fylkeSel').onchange = e => chooseFylke(e.target.value);
+  $('#fylkeX').onclick = () => chooseFylke('');
+
   const yr = $('#yr');
   yr.min = D.minYear; yr.max = D.maxYear;
   yr.addEventListener('input', () => { stopPlay(); setYear(+yr.value); });
   $('#play').onclick = () => (playing ? stopPlay() : startPlay());
   document.addEventListener('keydown', e => {
-    if (e.target.closest('input,textarea,select,.maplibregl-canvas')) return;   // glidebryter og kart har egne taster
+    if (e.target.closest('input,textarea,select,.maplibregl-canvas')) return;
     if (e.key === 'ArrowRight') { stopPlay(); setYear(S.year + 1); }
     else if (e.key === 'ArrowLeft') { stopPlay(); setYear(S.year - 1); }
     else if (e.key === ' ' && !e.target.closest('button,summary')) { e.preventDefault(); playing ? stopPlay() : startPlay(); }
@@ -145,40 +163,39 @@ function wireUI() {
     const b = e.target.closest('.yr'); if (!b) return;
     stopPlay(); setYear(+b.dataset.y);
   });
-  const toggles = { swKommune: 'kommune', swFylke: 'fylke', swRike: 'rike' };
+  const toggles = { swKommune: 'kommune', swFylke: 'fylkeL', swRike: 'rike' };
   for (const [id, key] of Object.entries(toggles)) {
     const el = $('#' + id); el.checked = S[key];
-    el.onchange = () => { S[key] = el.checked; map.setFilter('walls', wallFilter(S)); map.setFilter('walls-anim', wallFilter(S)); renderLegend(S); syncURL(); };
+    el.onchange = () => { S[key] = el.checked; applyYear(map, S, S.year, D.minYear); renderLegend(S); syncURL(); };
   }
   const swNavn = $('#swNavn'); swNavn.checked = S.navn;
   swNavn.onchange = () => { S.navn = swNavn.checked; map.setLayoutProperty('labels', 'visibility', S.navn ? 'visible' : 'none'); syncURL(); };
   const swNy = $('#swNy'); swNy.checked = S.ny;
-  swNy.onchange = () => { S.ny = swNy.checked; map.setLayoutProperty('k-new', 'visibility', S.ny ? 'visible' : 'none'); paintIdle(); renderLegend(S); syncURL(); };
+  swNy.onchange = () => { S.ny = swNy.checked; map.setLayoutProperty('k-new', 'visibility', S.ny ? 'visible' : 'none'); applyYear(map, S, S.year, D.minYear); renderLegend(S); syncURL(); };
   const swBorte = $('#swBorte'); swBorte.checked = S.borte;
-  swBorte.onchange = () => { S.borte = swBorte.checked; paintIdle(); renderLegend(S); syncURL(); };
+  swBorte.onchange = () => { S.borte = swBorte.checked; applyYear(map, S, S.year, D.minYear); renderLegend(S); syncURL(); };
   const hm = $('#hMult'), fmt = v => v.toLocaleString('nb-NO', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '×';
   hm.value = S.k; $('#hMultV').textContent = fmt(S.k);
-  hm.oninput = () => { S.k = +hm.value; $('#hMultV').textContent = fmt(S.k); cancelAnimationFrame(anim); T = S.year; paintIdle(); syncURL(); };
+  hm.oninput = () => { S.k = +hm.value; $('#hMultV').textContent = fmt(S.k); applyYear(map, S, S.year, D.minYear); syncURL(); };
 
   document.querySelectorAll('.theme button').forEach(b => {
     b.setAttribute('aria-pressed', b.dataset.t === S.tema);
     b.onclick = () => {
       S.tema = b.dataset.t;
       document.querySelectorAll('.theme button').forEach(x => x.setAttribute('aria-pressed', x === b));
-      applyTheme(map, S); cancelAnimationFrame(anim); T = S.year; paintIdle(); renderLegend(S); syncURL();
+      applyTheme(map, S); applyYear(map, S, S.year, D.minYear); renderLegend(S); syncURL();
     };
   });
   document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
     document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', x === t));
     $('#tab-hist').hidden = t.dataset.tab !== 'hist'; $('#tab-lag').hidden = t.dataset.tab !== 'lag';
   });
-  $('#bOversikt').onclick = () => map.flyTo({ ...HOME, curve: 1.3 });
+  $('#bOversikt').onclick = () => (fylkeNow ? chooseFylke(fylkeNow) : map.flyTo({ ...HOME, curve: 1.3 }));
   $('#bOven').onclick = () => map.easeTo({ pitch: 0, bearing: 0, duration: 1200 });
   $('#bFull').onclick = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.());
   $('#compass').onclick = () => map.easeTo({ bearing: 0, duration: 600 });
   $('#zin').onclick = () => map.zoomIn(); $('#zout').onclick = () => map.zoomOut();
   map.on('rotate', () => { $('#compass svg').style.transform = `rotate(${-map.getBearing()}deg)`; });
-  map.on('moveend', () => rebuildWalls(false));
   const dlg = $('#dlg');
   $('#aboutBtn').onclick = $('#aboutLink').onclick = () => dlg.showModal();
   $('#dlgX').onclick = () => dlg.close();
@@ -188,17 +205,16 @@ function wireUI() {
 /* ---------- Oppstart ---------- */
 map.on('load', async () => {
   try {
-    const [meta, topo, hist] = await dataP;
+    const [, topo, hist] = await dataP;
     D = prepare(topo, hist); H = makeHistory(D);
     if (!(S.year in D.yearState)) S.year = D.maxYear;
     document.documentElement.dataset.tema = S.tema;
+    LFC = lineFeatures(D);
     map.getSource('atoms').setData(D.atoms);
-    rebuildWalls(true);
-    map.setFilter('walls', wallFilter(S)); map.setFilter('walls-anim', wallFilter(S));
     applyTheme(map, S);
     renderTicks(H, D); renderLegend(S);
     wireUI();
-    setYear(S.year, false);
+    setYear(S.year);
     $('#loading').classList.add('done');
   } catch (err) {
     console.error(err);

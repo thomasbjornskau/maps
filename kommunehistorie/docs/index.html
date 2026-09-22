@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Norges kommuner 1986–2026 · Grensene som murer</title>
-<meta name="description" content="Bla gjennom kommuneinndelingen i Norge fra 1986 til i dag. Kommunegrensene står som murer i et 3D-kart, med historikk for hver kommune.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧱</text></svg>">
+<title>Norges kommuner 1986–2026 · Kommunegrensene gjennom 40 år</title>
+<meta name="description" content="Bla gjennom kommuneinndelingen i Norge fra 1986 til i dag. Kommunegrensene i et 3D-kart, med historikk for hver kommune.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.6.0/dist/maplibre-gl.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="map" aria-label="3D-kart over Norge med kommunegrensene som murer"></div>
+<div id="map" aria-label="3D-kart over Norge med kommunegrensene"></div>
 <div class="loading" id="loading">Henter kommunegrenser …</div>
 
 <header class="head">
@@ -24,20 +24,34 @@
 <button class="mobtoggle" id="mobToggle" aria-expanded="false" aria-controls="panel">Historie og kartlag</button>
 
 <aside class="panel" id="panel">
+  <div class="topnav">
+    <div class="yearnav" role="group" aria-label="Velg år">
+      <button id="prevEv" title="Forrige år med endringer" aria-label="Forrige år med endringer">«</button>
+      <button id="prevY" title="Forrige år" aria-label="Forrige år">‹</button>
+      <select id="yearSel" aria-label="År"></select>
+      <button id="nextY" title="Neste år" aria-label="Neste år">›</button>
+      <button id="nextEv" title="Neste år med endringer" aria-label="Neste år med endringer">»</button>
+    </div>
+    <div class="fylkenav">
+      <label for="fylkeSel">Fylke</label>
+      <select id="fylkeSel"><option value="">Hele landet</option></select>
+      <button id="fylkeX" title="Vis hele landet" aria-label="Fjern fylkesfilter" hidden>×</button>
+    </div>
+  </div>
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" aria-selected="true" data-tab="hist"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Historie</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="lag"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg>Kartlag</button>
   </div>
   <div class="scroll" id="tab-hist"><div id="hist" aria-live="polite"></div></div>
   <div class="scroll" id="tab-lag" hidden>
-    <div class="sect">Murer</div>
-    <div class="card"><div class="row"><div class="ct"><b>Kommunegrenser</b><small>Grensene mellom kommunene</small></div><input type="checkbox" class="sw" id="swKommune" aria-label="Vis kommunegrenser"></div></div>
-    <div class="card"><div class="row"><div class="ct"><b>Fylkesgrenser</b><small>Høyere murer der to kommuner ligger i ulike fylker</small></div><input type="checkbox" class="sw" id="swFylke" aria-label="Vis fylkesgrenser"></div></div>
+    <div class="sect">Grenser</div>
+    <div class="card"><div class="row"><div class="ct"><b>Kommunegrenser</b><small>Tynneste linje</small></div><input type="checkbox" class="sw" id="swKommune" aria-label="Vis kommunegrenser"></div></div>
+    <div class="card"><div class="row"><div class="ct"><b>Fylkesgrenser</b><small>Der to kommuner ligger i ulike fylker</small></div><input type="checkbox" class="sw" id="swFylke" aria-label="Vis fylkesgrenser"></div></div>
     <div class="card"><div class="row"><div class="ct"><b>Riksgrense</b><small>Grensen mot Sverige, Finland og Russland</small></div><input type="checkbox" class="sw" id="swRike" aria-label="Vis riksgrense"></div></div>
-    <div class="card"><label for="hMult" style="display:flex;justify-content:space-between;font-size:13px;font-weight:600">Murhøyde <span id="hMultV">1,0×</span></label><input type="range" id="hMult" min="0.3" max="5" step="0.1" value="1"></div>
+    <div class="card"><label for="hMult" style="display:flex;justify-content:space-between;font-size:13px;font-weight:600">Strektykkelse <span id="hMultV">1,0×</span></label><input type="range" id="hMult" min="0.3" max="3" step="0.1" value="1"></div>
     <div class="sect">Endringer</div>
     <div class="card"><div class="row"><div class="ct"><b>Fremhev endrede kommuner</b><small>Kommuner som ble slått sammen, delt eller fikk nye grenser dette året</small></div><input type="checkbox" class="sw" id="swNy" aria-label="Fremhev endrede kommuner"></div></div>
-    <div class="card"><div class="row"><div class="ct"><b>Vis grenser som forsvant</b><small>Lave, røde murer der en grense ble borte dette året</small></div><input type="checkbox" class="sw" id="swBorte" aria-label="Vis grenser som forsvant"></div></div>
+    <div class="card"><div class="row"><div class="ct"><b>Vis grenser som forsvant</b><small>Røde, stiplede linjer der en grense ble borte dette året</small></div><input type="checkbox" class="sw" id="swBorte" aria-label="Vis grenser som forsvant"></div></div>
     <div class="sect">Navn</div>
     <div class="card"><div class="row"><div class="ct"><b>Kommunenavn</b><small>Navnet slik det var det valgte året</small></div><input type="checkbox" class="sw" id="swNavn" aria-label="Vis kommunenavn"></div></div>
   </div>
@@ -83,14 +97,14 @@
 <dialog id="dlg"><div class="dlg">
   <button class="x" id="dlgX">Lukk</button>
   <h2>Om kartet</h2>
-  <p>Kartet viser kommuneinndelingen i Norge 1. januar hvert år fra 1986 til 2026. Kommunegrensene står som murer. Når en grense oppstår, vokser muren fram; når kommuner slås sammen, synker den.</p>
+  <p>Kartet viser kommuneinndelingen i Norge 1. januar hvert år fra 1986 til 2026. Nye grenser er blå og grenser som forsvant er røde det året endringen skjedde. Kommuner som ble slått sammen, delt eller fikk nye grenser, er fremhevet.</p>
   <h3>Grenser 1986–2019</h3>
   <p>SSBs historiske kommunestruktur med forbedret grensenøyaktighet. Serien er tilbakeført fra ABAS grunnkretser 2019, slik at en grense som ikke er endret, er geometrisk identisk gjennom hele perioden.</p>
   <h3>Grenser 2020–2026</h3>
   <p>2019-grensene er ført videre med endringene i Klass: sammenslåinger blir til sammenslåtte flater, og kommunene får nye numre. Kartverkets kommunegrenser for 2019, 2020, 2021, 2024, 2025 og 2026 er brukt til å finne områder som skiftet kommune uten at kodene viser det, som deler av Balestrand, Forsand og Re i 2020. Bitene er klippet slik at bare den nye grensen kommer fra Kartverket. Overføringer mindre enn 0,25 km² er under kartets oppløsning og ikke tatt med.</p>
   <p>Kartverket har ikke årganger for 2022 og 2023. Endringer mellom 2021- og 2024-fila er datert fra merknadene i Klass der det går. Ellers er de lagt i 2024 og merket «mellom 2022 og 2024».</p>
-  <h3>Murene</h3>
-  <p>Murene står bare på land. Kommunene går ut i sjøen til territorialgrensen, men grensene der er klippet bort mot en grov kystlinje (Natural Earth 1:10 mill.). Grensene er forenklet med 75 meters toleranse. Fylkesgrensene er utledet av de to første sifrene i kommunenummeret.</p>
+  <h3>Grenselinjene</h3>
+  <p>Linjene vises bare på land. Kommunene går ut i sjøen til territorialgrensen, men grensene der er klippet bort mot en grov kystlinje (Natural Earth 1:10 mill.). Grensene er forenklet med 75 meters toleranse. Fylkesgrensene er utledet av de to første sifrene i kommunenummeret, og fylkesnavnene er lagt inn som en tabell over fylkesnumrene 1986–2026.</p>
   <h3>Historikken</h3>
   <p>Sammenslåinger, delinger, nye kommunenummer og navn kommer fra endringstabellen i Klass (SSBs klassifikasjon 131). Arealoverføringer som bare finnes i grensene, er funnet ved å sammenligne årgangene; arealet inkluderer sjø. Dataene starter i 1986, så eldre historie er ikke med.</p>
 </div></dialog>

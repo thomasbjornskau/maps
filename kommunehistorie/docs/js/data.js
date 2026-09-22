@@ -29,8 +29,18 @@ export function prepare(topo, hist) {
   const atoms = topojson.feature(topo, topo.objects.atomer);
   atoms.features.forEach((f, i) => {
     const cs = f.properties.c.split('|'), p = { i };
-    cs.forEach((c, k) => { p['s' + k] = c; });
+    cs.forEach((c, k) => { p['s' + k] = c; p['f' + k] = c.slice(0, 2); });
     f.id = i; f.properties = p; f.bb = bbox(f.geometry);
+  });
+  // Hvilke atomer som ligger på hver side av hver bue
+  const owners = new Map();
+  topo.objects.atomer.geometries.forEach((g, gi) => {
+    const polys = g.type === 'MultiPolygon' ? g.arcs : [g.arcs];
+    for (const poly of polys) for (const ring of poly) for (const a of ring) {
+      const k = a >= 0 ? a : ~a;
+      if (!owners.has(k)) owners.set(k, []);
+      owners.get(k).push(gi);
+    }
   });
   const labelsByState = new Map();
   for (const [k, c, lon, lat] of hist.navnepunkt) {
@@ -38,41 +48,60 @@ export function prepare(topo, hist) {
     labelsByState.get(k).push({ c, lon, lat });
   }
   return {
-    states, yearState, atoms, arcs: decodeArcs(topo), walls: hist.murer, labelsByState,
+    states, yearState, atoms, owners, arcs: decodeArcs(topo), walls: hist.murer, labelsByState,
     names: hist.navn, events: hist.hendelser, counts: hist.antall,
     minYear: states[0].y0, maxYear: states[states.length - 1].y1
   };
 }
 
-// Murene som smale firkanter langs hvert grensesegment på land.
-export function wallFeatures(D, halfWidth) {
+// Grenselinjene: én linje per grensestykke og periode, bare delene på land.
+// a og b er atomene på hver side (b = −1 for riksgrensen), brukt av fylkesfilteret.
+export function lineFeatures(D) {
   const feats = [];
   for (const [ai, land, runs] of D.walls) {
-    const c = D.arcs[ai], polys = [];
-    for (const [i0, i1] of land) {
-      for (let i = i0; i <= i1; i++) {
-        const p = c[i], q = c[i + 1];
-        const kx = 111320 * Math.cos((p[1] + q[1]) / 2 * Math.PI / 180), ky = 110540;
-        const dx = (q[0] - p[0]) * kx, dy = (q[1] - p[1]) * ky, L = Math.hypot(dx, dy);
-        if (L < 1) continue;
-        const ux = dx / L, uy = dy / L, e = halfWidth * .6, nx = -uy * halfWidth, ny = ux * halfWidth;
-        const ax = p[0] - ux * e / kx, ay = p[1] - uy * e / ky, bx = q[0] + ux * e / kx, by = q[1] + uy * e / ky;
-        polys.push([[[ax + nx / kx, ay + ny / ky], [bx + nx / kx, by + ny / ky], [bx - nx / kx, by - ny / ky], [ax - nx / kx, ay - ny / ky], [ax + nx / kx, ay + ny / ky]]]);
-      }
-    }
-    if (!polys.length) continue;
+    const c = D.arcs[ai], lines = land.map(([i0, i1]) => c.slice(i0, i1 + 2));
+    const own = D.owners.get(ai) || [];
+    const a = own[0] ?? -1, b = own.length > 1 ? own[1] : -1;
     for (const [y0, y1, t] of runs) {
-      feats.push({ type: 'Feature', properties: { y0, y1, t }, geometry: { type: 'MultiPolygon', coordinates: polys } });
+      feats.push({ type: 'Feature', properties: { y0, y1, t, a, b }, geometry: { type: 'MultiLineString', coordinates: lines } });
     }
   }
   return { type: 'FeatureCollection', features: feats };
 }
 
-export function labelFeatures(D, year, nameAt) {
+// Bare linjene som berører et fylke i tilstand k
+export function linesInFylke(D, fc, k, fylke) {
+  const key = 'f' + k, at = D.atoms.features;
+  return {
+    type: 'FeatureCollection',
+    features: fc.features.filter(f => {
+      const { a, b } = f.properties;
+      return (a >= 0 && at[a].properties[key] === fylke) || (b >= 0 && at[b].properties[key] === fylke);
+    })
+  };
+}
+
+export function fylkeBounds(D, k, fylke) {
+  const key = 'f' + k, b = [180, 90, -180, -90];
+  for (const f of D.atoms.features) {
+    if (f.properties[key] !== fylke) continue;
+    b[0] = Math.min(b[0], f.bb[0]); b[1] = Math.min(b[1], f.bb[1]);
+    b[2] = Math.max(b[2], f.bb[2]); b[3] = Math.max(b[3], f.bb[3]);
+  }
+  return b[0] <= b[2] ? [[b[0], b[1]], [b[2], b[3]]] : null;
+}
+
+export function fylkerIn(D, k) {
+  const s = new Set();
+  for (const f of D.atoms.features) s.add(f.properties['f' + k]);
+  return [...s].sort();
+}
+
+export function labelFeatures(D, year, nameAt, fylke = null) {
   const k = D.yearState[year];
   return {
     type: 'FeatureCollection',
-    features: (D.labelsByState.get(k) || []).map(l => ({
+    features: (D.labelsByState.get(k) || []).filter(l => !fylke || l.c.slice(0, 2) === fylke).map(l => ({
       type: 'Feature', properties: { c: l.c, n: nameAt(l.c, year) }, geometry: { type: 'Point', coordinates: [l.lon, l.lat] }
     }))
   };
