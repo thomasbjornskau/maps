@@ -1,0 +1,32 @@
+{
+  "ruter": {
+    "fil": "ruter_250m_2020_2025.bin.gz",
+    "fra": 2020,
+    "til": 2025,
+    "n": 232338,
+    "x0": -75000,
+    "y0": 6451000,
+    "storrelse": 250,
+    "sum": {
+      "2020": 5357232,
+      "2025": 5585868
+    },
+    "nye": 10091,
+    "tomte": 7577,
+    "kilde": "SSB, Befolkning på rutenett 250 m, 1. januar (NLOD)"
+  },
+  "bygget": "2026-09-22",
+  "grenser": {
+    "fil": "grunnkretser_2026.topo.json",
+    "aar": 2026,
+    "objekt": "grunnkretser",
+    "toleranse_m": 40,
+    "antall": {
+      "grunnkretser": 14126,
+      "delomrader": 1547,
+      "kommuner": 357,
+      "fylker": 15
+    },
+    "kilde": "Kartverket/SSB, Grunnkretser (Geonorge)"
+  }
+}

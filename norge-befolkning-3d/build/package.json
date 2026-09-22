@@ -1,0 +1,6 @@
+{
+  "name": "norge-befolkning-3d-build",
+  "private": true,
+  "description": "Byggeverktøy for grensedata (kjøres ikke på nettsiden)",
+  "devDependencies": { "mapshaper": "0.7.62" }
+}

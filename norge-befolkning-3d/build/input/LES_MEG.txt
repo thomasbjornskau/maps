@@ -1,0 +1,10 @@
+Legg kildefilene her før du kjører byggeskriptene. Mappen committes ikke (se .gitignore).
+
+Befolkning (prep_ruter.py):
+  *befolkning_250m_ÅÅÅÅ.csv   – én fil per år, fra kart.ssb.no eller Geonorge
+
+Grenser (prep_grenser.py):
+  Basisdata_0000_Norge_25833_Grunnkretser_GeoJSON.zip   – landsfil fra Geonorge
+
+Navn (prep_navn.py), CSV fra dataportal.ssb.no/classifications:
+  Kommuneinndeling (131), Fylkesinndeling (104), Grunnkretser og delområder (1)
