@@ -1,0 +1,1 @@
+{ "name": "kommunehistorie-build", "private": true, "devDependencies": { "mapshaper": "0.7.62" } }
