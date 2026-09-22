@@ -55,6 +55,10 @@ export function makeHistory(D) {
       else out.push(renumber(o, n));
       return out;
     }
+    // Navnebytte på en kode som fortsetter, inne i en større endring (f.eks. Haus → Arna 1964)
+    for (const [o, t] of T) {
+      if (t.includes(o) && Sx.get(o).length === 1 && nameAt(o, y - 1) !== nameAt(o, y)) out.push({ kind: 'navn', codes: [o], text: `${nameAt(o, y - 1)} fikk navnet ${nameAt(o, y)}` });
+    }
     for (const [o, t] of T) {
       if (t.length < 2) continue;
       if (t.includes(o)) out.push({ kind: 'avgivelse', codes: [o, ...t], text: `${nameAt(o, y - 1)} avga areal til ${list(t.filter(x => x !== o).map(x => nameAt(x, y)))}` });
@@ -92,32 +96,58 @@ export function makeHistory(D) {
     return [...out];
   }
 
-  // Slektslinje: hvilke endringer som ledet fram til kommunen, og hva den ble til
+  // Slektslinje: hvilke endringer som ledet fram til kommunen, og hva den ble til.
+  // Linjen følger kommuner som gikk helt eller delvis opp i en annen, men ikke kommuner
+  // som bare avga areal og selv fortsatte – ellers drar én liten overføring med seg
+  // hele naboens historie.
   function lineage(code, Y) {
-    const chain = new Set([code]), back = [], fwd = [], seen = new Set();
+    const subjects = new Set([code]), back = [], fwd = [], seen = new Set();
+    const maps = ev => {
+      const T = new Map(), Sx = new Map();
+      for (const [o, n] of ev.l) {
+        if (!T.has(o)) T.set(o, []); T.get(o).push(n);
+        if (!Sx.has(n)) Sx.set(n, []); Sx.get(n).push(o);
+      }
+      return { T, Sx };
+    };
     let front = [{ c: code, lim: Y + 1 }];
-    for (let g = 0; front.length && g < 60; g++) {
+    for (let g = 0; front.length && g < 80; g++) {
       const { c, lim } = front.shift();
       let best = null;
       for (const ev of byCode.get(c) || []) if (ev.l && ev.y < lim && ev.l.some(l => l[1] === c) && (!best || ev.y > best.y)) best = ev;
       if (!best || seen.has(best)) continue;
       seen.add(best); back.push(best);
-      for (const [o, n] of best.l) if (n === c) { chain.add(o); front.push({ c: o, lim: best.y }); }
+      const { T } = maps(best);
+      for (const [o, n] of best.l) {
+        if (n !== c) continue;
+        const onlyGaveArea = o !== c && T.get(o).includes(o);
+        if (!onlyGaveArea || o === c) { subjects.add(o); front.push({ c: o, lim: best.y }); }
+      }
     }
     front = [{ c: code, lim: Y }];
-    for (let g = 0; front.length && g < 60; g++) {
+    for (let g = 0; front.length && g < 80; g++) {
       const { c, lim } = front.shift();
       let best = null;
       for (const ev of byCode.get(c) || []) if (ev.l && ev.y > lim && ev.l.some(l => l[0] === c) && (!best || ev.y < best.y)) best = ev;
       if (!best || seen.has(best)) continue;
       seen.add(best); fwd.push(best);
-      for (const [o, n] of best.l) if (o === c) { chain.add(n); front.push({ c: n, lim: best.y }); }
+      const { T, Sx } = maps(best);
+      for (const [o, n] of best.l) {
+        if (o !== c) continue;
+        const onlyGaveArea = n !== c && T.get(c).includes(c) && Sx.get(n).includes(n);
+        if (!onlyGaveArea) { subjects.add(n); front.push({ c: n, lim: best.y }); }
+      }
     }
-    for (const c of chain) for (const ev of byCode.get(c) || []) {
+    for (const c of subjects) for (const ev of byCode.get(c) || []) {
       if (ev.t && !seen.has(ev)) { seen.add(ev); (ev.y <= Y ? back : fwd).push(ev); }
     }
-    const render = evs => evs.map(ev => ({ y: ev.y, items: describe(ev).filter(i => i.codes.some(c => chain.has(c))) }))
-      .filter(e => e.items.length);
+    // Bare setninger der en av kommunene i linjen er den som endres
+    const relevant = i => {
+      if (i.kind === 'overforing') return i.codes.some(c => subjects.has(c));
+      if (i.kind === 'deling' || i.kind === 'avgivelse') return subjects.has(i.codes[0]) || i.codes.slice(1).some(c => c !== i.codes[0] && subjects.has(c));
+      return subjects.has(i.codes[0]);
+    };
+    const render = evs => evs.map(ev => ({ y: ev.y, items: describe(ev).filter(relevant) })).filter(e => e.items.length);
     return {
       back: render(back).sort((a, b) => b.y - a.y),
       fwd: render(fwd).sort((a, b) => a.y - b.y)

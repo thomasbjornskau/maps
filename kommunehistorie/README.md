@@ -86,7 +86,10 @@ Okabe–Ito, slik at typene skilles også ved nedsatt fargesyn, og tykkelsen ski
 **Fylkesfilteret** zoomer til fylket og dekker resten av landet. Det følger et punkt i fylket, slik at
 filteret overlever fylkessammenslåinger: velger du Hordaland i 2019 og blar til 2020, viser kartet Vestland.
 
-**Historikken** bygger på endringstabellen i Klass. Arealoverføringer uten kodeendring (f.eks.
+**Historikken** bygger på endringstabellen i Klass og går tilbake til 1838, selv om grensene starter
+i 1986. Utgangsnavnene kommer fra kommunefila for 1838 (kart.ssb.no), og byggeskriptet sjekker at
+kjeden av Klass-endringer fra 1838 ender nøyaktig i SSBs 1986-kommuner. Slektslinjen følger kommuner
+som gikk opp i den valgte, men ikke naboer som bare avga areal og selv fortsatte. Arealoverføringer uten kodeendring (f.eks.
 Alstahaug → Vefsn 1995, Rauma → Vestnes 2021) er funnet ved å sammenligne årgangene.
 
 ## Forbehold
@@ -95,7 +98,8 @@ Alstahaug → Vefsn 1995, Rauma → Vestnes 2021) er funnet ved å sammenligne �
   stilspesifikasjon, og data-, historikk- og filtermodulene er testet i Node, men selve renderingen er ikke sett.
 - **Fylkesnavnene** er en tabell i `config.js` over fylkesnumrene 1986–2026, ikke hentet fra Klass.
 - **Arealtall** for overføringer inkluderer sjø.
-- **Før 1986** finnes ikke digitale grenser i SSB-serien. Grensene for 1954–1970 ville gitt 1960-tallets store reform.
+- **Før 1986** vises bare historikken, ikke grensene. Kart.ssb.no har grenser per periode helt fra 1838;
+  testfilene for 1958 og 1972 treffer 1986-grensene med 94 % eksakt sammenfall, så serien kan bygges ut bakover.
 
 ## Kilder og lisenser
 

@@ -89,7 +89,7 @@ function syncYearControls() {
   $('#yr').value = y; $('#tlYear').textContent = y; $('#yearSel').value = y;
   $('#yr').setAttribute('aria-valuetext', `${y}, ${D.counts[y]} kommuner`);
   $('#prevY').disabled = y <= D.minYear; $('#nextY').disabled = y >= D.maxYear;
-  $('#prevEv').disabled = !H.eventYears.some(e => e < y); $('#nextEv').disabled = !H.eventYears.some(e => e > y && e <= D.maxYear);
+  $('#prevEv').disabled = !H.eventYears.some(e => e < y && e >= D.minYear); $('#nextEv').disabled = !H.eventYears.some(e => e > y && e <= D.maxYear);
 }
 function setYear(y) {
   y = Math.max(D.minYear, Math.min(D.maxYear, Math.round(y)));
@@ -144,7 +144,7 @@ function wireUI() {
   ys.onchange = () => { stopPlay(); setYear(+ys.value); };
   $('#prevY').onclick = () => { stopPlay(); setYear(S.year - 1); };
   $('#nextY').onclick = () => { stopPlay(); setYear(S.year + 1); };
-  $('#prevEv').onclick = () => { stopPlay(); const y = [...H.eventYears].reverse().find(e => e < S.year); if (y) setYear(y); };
+  $('#prevEv').onclick = () => { stopPlay(); const y = [...H.eventYears].reverse().find(e => e < S.year && e >= D.minYear); if (y) setYear(y); };
   $('#nextEv').onclick = () => { stopPlay(); const y = H.eventYears.find(e => e > S.year && e <= D.maxYear); if (y) setYear(y); };
   $('#fylkeSel').onchange = e => chooseFylke(e.target.value);
   $('#fylkeX').onclick = () => chooseFylke('');

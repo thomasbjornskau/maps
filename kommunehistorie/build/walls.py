@@ -82,31 +82,56 @@ def build_walls(topo, codes, states, land_utm):
     return walls, stats
 
 
-def names_by_year(states, changes_by_year):
-    """Navn per kode og år. 1986–2019 fra SSB-lagene, deretter videreført med Klass."""
+def names_before(base, changes_by_year, first_geo_year):
+    """Navneperioder før geometrien starter: utgangsnavnene (f.eks. 1838) ført fram med Klass."""
+    y_start = min(changes_by_year) - 1 if changes_by_year else first_geo_year
+    cur = {c: [n, y_start] for c, n in base.items()}
+    runs = collections.defaultdict(list)
+    for y in sorted(k for k in changes_by_year if k < first_geo_year):
+        ev = changes_by_year[y]
+        for e in ev:
+            if e['oldCode'] in cur:
+                n, since = cur.pop(e['oldCode'])
+                runs[e['oldCode']].append([since, y - 1, n])
+        for e in ev:
+            cur[e['newCode']] = [e['newName'], y]
+    for c, (n, since) in cur.items():
+        runs[c].append([since, first_geo_year - 1, n])
+    return runs, set(cur)
+
+
+def names_by_year(states, changes_by_year, base_names=None):
+    """Navn per kode og år. Fra første geometriår: SSB-lagene, deretter videreført med Klass.
+    Før det: utgangsnavnene (base_names) ført fram med Klass-endringene."""
     per_year = {}
     for s in states:
         if 'names' in s:
             for y in range(s['y0'], s['y1'] + 1):
                 per_year[y] = dict(s['names'])
+    first = states[0]['y0']
     for y in range(2020, 2027):
         cur = dict(per_year[y - 1])
         ev = changes_by_year.get(y, [])
         for e in ev: cur.pop(e['oldCode'], None)
         for e in ev: cur[e['newCode']] = e['newName']
         per_year[y] = cur
-    # Klass-navn også for tidligere navnebytter (1988–2019), slik at skrivemåten følger Klass
-    for y in range(1987, 2020):
+    for y in range(first + 1, 2020):
         for e in changes_by_year.get(y, []):
             if e['newCode'] in per_year[y]:
                 per_year[y][e['newCode']] = e['newName']
     runs = collections.defaultdict(list)
+    pre_codes = None
+    if base_names:
+        pre, pre_codes = names_before(base_names, changes_by_year, first)
+        for c, r in pre.items():
+            runs[c].extend(r)
     for y in sorted(per_year):
         for c, n in per_year[y].items():
             r = runs[c]
             if r and r[-1][2] == n and r[-1][1] == y - 1: r[-1][1] = y
             else: r.append([y, y, n])
-    return dict(runs), per_year
+    for c in runs: runs[c].sort()
+    return dict(runs), per_year, pre_codes
 
 
 def events(changes_by_year, atoms_codes, states, uncertain_from=None):

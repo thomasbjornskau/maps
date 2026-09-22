@@ -3,7 +3,9 @@ Legg kildefilene her før du kjører build/prep_kommuner.py. Mappen committes ik
   Historisk_kommstruktur_forbedret.gdb (eller zip)     SSB, ssb.no → Natur og miljø → Geodata (kommunegrenser 1986–2019)
   Basisdata_0000_Norge_25833_Kommuner_GeoJSON.zip      Kartverket via Geonorge, gjeldende kommunegrenser
   Basisdata_0000_Norge_25833_KommunerÅÅÅÅ_FGDB.zip     Kartverket via Geonorge, historiske årganger (valgfritt, men anbefalt)
-  changes.json                                          Klass 131, endringer:
+  changes*.json                                         Klass 131, endringer. Alle filer slås sammen, f.eks.:
+      https://data.ssb.no/api/klass/v1/classifications/131/changes.json?from=1838-01-01&to=1986-01-01
       https://data.ssb.no/api/klass/v1/classifications/131/changes.json?from=1986-01-01&to=2027-01-02
+  *kommuner_p1838*.geojson (valgfritt)                  kart.ssb.no, kommunene i 1838: gir navnene historikken starter med
   ne_10m_land.geojson                                   Natural Earth, grov kystlinje:
       https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_land.geojson

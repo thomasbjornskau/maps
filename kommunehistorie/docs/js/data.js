@@ -50,7 +50,7 @@ export function prepare(topo, hist) {
   return {
     states, yearState, atoms, owners, arcs: decodeArcs(topo), walls: hist.murer, labelsByState,
     names: hist.navn, events: hist.hendelser, counts: hist.antall,
-    minYear: states[0].y0, maxYear: states[states.length - 1].y1
+    minYear: states[0].y0, maxYear: states[states.length - 1].y1, histFrom: hist.historie_fra ?? states[0].y0
   };
 }
 

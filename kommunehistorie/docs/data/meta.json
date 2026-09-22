@@ -1,6 +1,7 @@
 {
   "fra": 1986,
   "til": 2026,
+  "historie_fra": 1838,
   "bygget": "2026-09-22",
   "toleranse_m": 75,
   "landbuffer_m": 1000,

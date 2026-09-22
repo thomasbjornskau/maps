@@ -12,7 +12,10 @@ export function renderHeader(D, Y) {
   $('#hSub').innerHTML = `${nf.format(n)} kommuner${diff ? ` <span class="${diff < 0 ? 'down' : 'up'}">(${diff > 0 ? '+' : '−'}${Math.abs(diff)})</span>` : ''}`;
 }
 
-const entry = (y, texts) => `<li><button class="yr" data-y="${y}" title="Gå til ${y}">${y}</button><div>${texts.map(t => `<p>${esc(t)}</p>`).join('')}</div></li>`;
+// Årstall i kartets periode er knapper som hopper dit; eldre årstall er bare tekst.
+const entry = (y, texts, minYear) => `<li>${y >= minYear
+  ? `<button class="yr" data-y="${y}" title="Gå til ${y}">${y}</button>`
+  : `<span class="yr old" title="Før kartets periode – bare historikk">${y}</span>`}<div>${texts.map(t => `<p>${esc(t)}</p>`).join('')}</div></li>`;
 
 export function renderYear(H, D, Y, fylke = null) {
   const all = H.yearSummary(Y);
@@ -21,7 +24,7 @@ export function renderYear(H, D, Y, fylke = null) {
   const where = fylke ? ` i ${FYLKER[fylke] || fylke}` : '';
   let html = `<div class="hh"><span class="lbl">Endringer 1. januar ${Y}${esc(where)}</span></div>`;
   if (!s.major.length && !s.nummer.length && !s.navn.length) {
-    html += `<p class="muted">${Y === D.minYear ? 'Kartet starter her. SSBs digitale kommunegrenser går ikke lenger tilbake.' : `Ingen endringer i kommuneinndelingen${esc(where)} dette året.`}</p>`;
+    html += `<p class="muted">${Y === D.minYear ? `Kartet starter her. Grensene går ikke lenger tilbake, men klikk på en kommune for å se historien helt fra ${D.histFrom}.` : `Ingen endringer i kommuneinndelingen${esc(where)} dette året.`}</p>`;
   } else {
     if (s.major.length) html += `<ul class="ev">${s.major.map(i => `<li class="${i.kind}">${esc(i.text)}</li>`).join('')}</ul>`;
     if (s.nummer.length) html += `<details><summary>${s.nummer.length} ${s.nummer.length === 1 ? 'kommune' : 'kommuner'} fikk nytt kommunenummer</summary><ul class="ev small">${s.nummer.map(i => `<li>${esc(i.text)}</li>`).join('')}</ul></details>`;
@@ -33,15 +36,17 @@ export function renderYear(H, D, Y, fylke = null) {
 
 export function renderKommune(H, D, code, Y) {
   const L = H.lineage(code, Y), sp = H.span(code);
-  const first = sp && sp[0] <= D.minYear ? `før ${D.minYear}` : sp?.[0];
+  const first = sp && sp[0] <= D.histFrom ? `fra ${D.histFrom} eller før` : sp?.[0];
   let html = `<div class="hh"><span class="lbl">Valgt kommune</span><button class="x" id="selX" aria-label="Fjern valg">×</button></div>
   <h2 class="kname">${esc(H.nameAt(code, Y))}</h2>
   <p class="kmeta">Kommunenummer ${code}${sp ? ` · brukt ${first}–${sp[1] >= D.maxYear ? 'i dag' : sp[1]}` : ''}</p>`;
   html += `<h3>Bakover i tid</h3>`;
-  html += L.back.length ? `<ol class="tl-list">${L.back.map(e => entry(e.y, e.items.map(i => i.text))).join('')}</ol>`
-    : `<p class="muted">Ingen endringer siden ${D.minYear}. Dataene går ikke lenger tilbake.</p>`;
+  const inMap = L.back.filter(e => e.y >= D.minYear), before = L.back.filter(e => e.y < D.minYear);
+  if (inMap.length) html += `<ol class="tl-list">${inMap.map(e => entry(e.y, e.items.map(i => i.text), D.minYear)).join('')}</ol>`;
+  if (before.length) html += `<p class="era">Før ${D.minYear} · bare historikk, ikke grenser</p><ol class="tl-list old">${before.map(e => entry(e.y, e.items.map(i => i.text), D.minYear)).join('')}</ol>`;
+  if (!L.back.length) html += `<p class="muted">Ingen endringer i Klass siden ${D.histFrom}.</p>`;
   html += `<h3>Fremover i tid</h3>`;
-  html += L.fwd.length ? `<ol class="tl-list">${L.fwd.map(e => entry(e.y, e.items.map(i => i.text))).join('')}</ol>`
+  html += L.fwd.length ? `<ol class="tl-list">${L.fwd.map(e => entry(e.y, e.items.map(i => i.text), D.minYear)).join('')}</ol>`
     : `<p class="muted">Uendret til og med ${D.maxYear}.</p>`;
   html += `<p class="note">Kartet følger stedet du klikket på. Bla i tid for å se hvilken kommune det tilhørte.</p>`;
   $('#hist').innerHTML = html;

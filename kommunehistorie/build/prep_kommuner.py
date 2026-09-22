@@ -4,7 +4,8 @@ Bygger dataene for kommunekartet 1986–2026.
 Inndata i build/input/:
   Historisk_kommstruktur_forbedret.gdb (utpakket) eller zip med den   – SSB, 1986–2019
   Basisdata_0000_Norge_25833_Kommuner_GeoJSON.zip                      – Kartverket, gjeldende
-  changes.json                                                         – Klass 131, endringer
+  changes*.json                                                        – Klass 131, endringer (alle filer slås sammen)
+  *kommuner_p1838*.geojson (valgfritt)                                 – kommunene i 1838, gir navnene historikken starter med
   ne_10m_land.geojson                                                  – Natural Earth, grov kystlinje
   Basisdata_0000_Norge_25833_KommunerÅÅÅÅ_FGDB.zip (valgfritt)          – Kartverket, historiske årganger
 
@@ -58,7 +59,17 @@ def main():
         if not gdb_src: sys.exit('Fant ikke SSBs geodatabase i input/')
         gdb = unpack(gdb_src, tmp, '*.gdb')
         kv = unpack(find('*Kommuner_GeoJSON*'), tmp, '*Kommuner*.geojson')
-        changes = json.load(open(find('changes*.json'), encoding='utf-8'))['codeChanges']
+        seen, changes = set(), []
+        for cf in sorted(INPUT.glob('changes*.json')):
+            for e in json.load(open(cf, encoding='utf-8'))['codeChanges']:
+                k = json.dumps(e, sort_keys=True)
+                if k not in seen: seen.add(k); changes.append(e)
+        print(f'   Klass-endringer: {len(changes)} fra {min(e["changeOccurred"][:4] for e in changes)} til {max(e["changeOccurred"][:4] for e in changes)}')
+        base_names = None
+        base = sorted(INPUT.glob('*kommuner_p1838*.geojson'))
+        if base:
+            bg = gpd.read_file(base[-1], engine='pyogrio', read_geometry=False)
+            base_names = dict(zip(bg.komm_nr.astype(str), bg.komm_navn))
         kv_years = {}
         for z in sorted(INPUT.glob('*Kommuner[12][0-9][0-9][0-9]_FGDB.zip')):
             y = int(z.name.split('Kommuner')[1][:4])
@@ -112,18 +123,22 @@ def main():
     land = gpd.GeoSeries([shapely.union_all(ne.geometry.values).intersection(box(3, 57.5, 32, 71.5))], crs=4326).to_crs(25833).iloc[0]
     land_b = land.buffer(a.landbuffer); shapely.prepare(land_b)
     walls, wstats = build_walls(topo, codes, states, land_b)
-    names, per_year = names_by_year(states, by_year)
+    names, per_year, pre_codes = names_by_year(states, by_year, base_names)
+    if pre_codes is not None and pre_codes != set(states[0]['polys']):
+        sys.exit(f"Klass-kjeden fra 1838 ender ikke i {states[0]['y0']}-kommunene: {sorted(pre_codes ^ set(states[0]['polys']))[:10]}")
     ev = events(by_year, [(x['c'], x['g'].area) for x in atoms], states, {2024: 2022} if 2021 in kv_years else {})
     lab = labels(states, land)
 
     print('5/5 Skriver filer …')
+    meta_hist_from = min(int(e['changeOccurred'][:4]) for e in changes) - 1 if base_names else states[0]['y0']
     hist = {
         'tilstander': [{'y0': s['y0'], 'y1': s['y1'], 'kilde': s['kilde']} for s in states],
         'antall': {y: len(per_year[y]) for y in sorted(per_year)},
+        'historie_fra': meta_hist_from,
         'navn': names, 'hendelser': ev, 'navnepunkt': lab, 'murer': walls
     }
     (DATA / 'historikk.json').write_text(json.dumps(hist, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
-    meta = {'fra': states[0]['y0'], 'til': states[-1]['y1'], 'bygget': datetime.date.today().isoformat(),
+    meta = {'fra': states[0]['y0'], 'til': states[-1]['y1'], 'historie_fra': min(int(e['changeOccurred'][:4]) for e in changes) - 1 if base_names else states[0]['y0'], 'bygget': datetime.date.today().isoformat(),
             'toleranse_m': a.toleranse, 'landbuffer_m': a.landbuffer, 'atomer': len(atoms), 'murer': len(walls),
             'filer': {'topologi': 'atomer.topo.json', 'historikk': 'historikk.json'}}
     (DATA / 'meta.json').write_text(json.dumps(meta, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
