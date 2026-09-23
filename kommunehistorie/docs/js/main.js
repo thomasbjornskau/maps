@@ -74,7 +74,8 @@ function pickSelection() {
 }
 function applyFilters() {
   const k = sKey();
-  map.setFilter('k-new', ['in', ['get', k], ['literal', H.changedCodes(S.year)]]);
+  const prev = D.prevYear(S.year), from = prev && prev < S.year - 1 ? prev + 1 : S.year;
+  map.setFilter('k-new', ['in', ['get', k], ['literal', H.changedCodes(S.year, from)]]);
   map.setFilter('k-hover', ['==', ['get', k], hoverCode || '']);
   map.setFilter('k-sel', ['==', ['get', k], selCode || '']);
 }
@@ -84,18 +85,25 @@ function renderPanel() {
     $('#selX').onclick = () => { S.sel = null; selCode = null; applyFilters(); renderPanel(); syncURL(); };
   } else renderYear(H, D, S.year, fylkeNow);
 }
+// Tidslinjen går over de årene vi har grenser for, ikke over alle kalenderår.
+const evYears = () => D.years.filter(y => {
+  const p = D.prevYear(y), from = p && p < y - 1 ? p + 1 : y;
+  return H.eventYears.some(e => e >= from && e <= y);
+});
 function syncYearControls() {
-  const y = S.year;
-  $('#yr').value = y; $('#tlYear').textContent = y; $('#yearSel').value = y;
+  const y = S.year, i = D.index.get(y);
+  $('#yr').value = i; $('#tlYear').textContent = y; $('#yearSel').value = y;
   $('#yr').setAttribute('aria-valuetext', `${y}, ${D.counts[y]} kommuner`);
-  $('#prevY').disabled = y <= D.minYear; $('#nextY').disabled = y >= D.maxYear;
-  $('#prevEv').disabled = !H.eventYears.some(e => e < y && e >= D.minYear); $('#nextEv').disabled = !H.eventYears.some(e => e > y && e <= D.maxYear);
+  $('#prevY').disabled = i === 0; $('#nextY').disabled = i === D.years.length - 1;
+  const ev = evYears();
+  $('#prevEv').disabled = !ev.some(e => e < y); $('#nextEv').disabled = !ev.some(e => e > y);
 }
 function setYear(y) {
   y = Math.max(D.minYear, Math.min(D.maxYear, Math.round(y)));
+  if (!(y in D.yearState)) y = D.years.reduce((b, c) => (Math.abs(c - y) < Math.abs(b - y) ? c : b));
   S.year = y; hoverCode = null;
   applyFylke(); pickSelection(); applyFilters();
-  applyYear(map, S, y, D.minYear);
+  applyYear(map, S, y, D.minYear, D.prevYear(y));
   renderHeader(D, y); renderPanel(); syncYearControls();
   syncURL();
 }
@@ -105,7 +113,7 @@ function stopPlay() { clearInterval(playing); playing = null; $('#play').setAttr
 function startPlay() {
   if (S.year >= D.maxYear) setYear(D.minYear);
   $('#play').setAttribute('aria-pressed', 'true'); $('#play').setAttribute('aria-label', 'Pause');
-  playing = setInterval(() => { if (S.year >= D.maxYear) stopPlay(); else setYear(S.year + 1); }, 1200);
+  playing = setInterval(() => { const n = D.nextYear(S.year); n ? setYear(n) : stopPlay(); }, 1200);
 }
 
 /* ---------- Peking ---------- */
@@ -139,24 +147,27 @@ function togglePanel(force) {
   p.classList.toggle('open', on); $('#mobToggle').setAttribute('aria-expanded', on);
 }
 function wireUI() {
-  const ys = $('#yearSel'), ev = new Set(H.eventYears);
-  for (let y = D.minYear; y <= D.maxYear; y++) ys.add(new Option(ev.has(y) ? `${y} ●` : String(y), y));
+  const ys = $('#yearSel'), ev = new Set(evYears());
+  D.years.forEach((y, i) => {
+    const gap = i && D.years[i - 1] < y - 1;
+    ys.add(new Option(`${gap ? '— ' : ''}${y}${ev.has(y) ? ' ●' : ''}`, y));
+  });
   ys.onchange = () => { stopPlay(); setYear(+ys.value); };
-  $('#prevY').onclick = () => { stopPlay(); setYear(S.year - 1); };
-  $('#nextY').onclick = () => { stopPlay(); setYear(S.year + 1); };
-  $('#prevEv').onclick = () => { stopPlay(); const y = [...H.eventYears].reverse().find(e => e < S.year && e >= D.minYear); if (y) setYear(y); };
-  $('#nextEv').onclick = () => { stopPlay(); const y = H.eventYears.find(e => e > S.year && e <= D.maxYear); if (y) setYear(y); };
+  $('#prevY').onclick = () => { stopPlay(); setYear(D.prevYear(S.year) ?? S.year); };
+  $('#nextY').onclick = () => { stopPlay(); setYear(D.nextYear(S.year) ?? S.year); };
+  $('#prevEv').onclick = () => { stopPlay(); const y = [...evYears()].reverse().find(e => e < S.year); if (y) setYear(y); };
+  $('#nextEv').onclick = () => { stopPlay(); const y = evYears().find(e => e > S.year); if (y) setYear(y); };
   $('#fylkeSel').onchange = e => chooseFylke(e.target.value);
   $('#fylkeX').onclick = () => chooseFylke('');
 
-  const yr = $('#yr');
-  yr.min = D.minYear; yr.max = D.maxYear;
-  yr.addEventListener('input', () => { stopPlay(); setYear(+yr.value); });
+  const yr = $('#yr');           // glidebryteren teller posisjoner, ikke år
+  yr.min = 0; yr.max = D.years.length - 1;
+  yr.addEventListener('input', () => { stopPlay(); setYear(D.years[+yr.value]); });
   $('#play').onclick = () => (playing ? stopPlay() : startPlay());
   document.addEventListener('keydown', e => {
     if (e.target.closest('input,textarea,select,.maplibregl-canvas')) return;
-    if (e.key === 'ArrowRight') { stopPlay(); setYear(S.year + 1); }
-    else if (e.key === 'ArrowLeft') { stopPlay(); setYear(S.year - 1); }
+    if (e.key === 'ArrowRight') { stopPlay(); setYear(D.nextYear(S.year) ?? S.year); }
+    else if (e.key === 'ArrowLeft') { stopPlay(); setYear(D.prevYear(S.year) ?? S.year); }
     else if (e.key === ' ' && !e.target.closest('button,summary')) { e.preventDefault(); playing ? stopPlay() : startPlay(); }
   });
   $('#panel').addEventListener('click', e => {
@@ -166,24 +177,24 @@ function wireUI() {
   const toggles = { swKommune: 'kommune', swFylke: 'fylkeL', swRike: 'rike' };
   for (const [id, key] of Object.entries(toggles)) {
     const el = $('#' + id); el.checked = S[key];
-    el.onchange = () => { S[key] = el.checked; applyYear(map, S, S.year, D.minYear); renderLegend(S); syncURL(); };
+    el.onchange = () => { S[key] = el.checked; applyYear(map, S, S.year, D.minYear, D.prevYear(S.year)); renderLegend(S); syncURL(); };
   }
   const swNavn = $('#swNavn'); swNavn.checked = S.navn;
   swNavn.onchange = () => { S.navn = swNavn.checked; map.setLayoutProperty('labels', 'visibility', S.navn ? 'visible' : 'none'); syncURL(); };
   const swNy = $('#swNy'); swNy.checked = S.ny;
-  swNy.onchange = () => { S.ny = swNy.checked; map.setLayoutProperty('k-new', 'visibility', S.ny ? 'visible' : 'none'); applyYear(map, S, S.year, D.minYear); renderLegend(S); syncURL(); };
+  swNy.onchange = () => { S.ny = swNy.checked; map.setLayoutProperty('k-new', 'visibility', S.ny ? 'visible' : 'none'); applyYear(map, S, S.year, D.minYear, D.prevYear(S.year)); renderLegend(S); syncURL(); };
   const swBorte = $('#swBorte'); swBorte.checked = S.borte;
-  swBorte.onchange = () => { S.borte = swBorte.checked; applyYear(map, S, S.year, D.minYear); renderLegend(S); syncURL(); };
+  swBorte.onchange = () => { S.borte = swBorte.checked; applyYear(map, S, S.year, D.minYear, D.prevYear(S.year)); renderLegend(S); syncURL(); };
   const hm = $('#hMult'), fmt = v => v.toLocaleString('nb-NO', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '×';
   hm.value = S.k; $('#hMultV').textContent = fmt(S.k);
-  hm.oninput = () => { S.k = +hm.value; $('#hMultV').textContent = fmt(S.k); applyYear(map, S, S.year, D.minYear); syncURL(); };
+  hm.oninput = () => { S.k = +hm.value; $('#hMultV').textContent = fmt(S.k); applyYear(map, S, S.year, D.minYear, D.prevYear(S.year)); syncURL(); };
 
   document.querySelectorAll('.theme button').forEach(b => {
     b.setAttribute('aria-pressed', b.dataset.t === S.tema);
     b.onclick = () => {
       S.tema = b.dataset.t;
       document.querySelectorAll('.theme button').forEach(x => x.setAttribute('aria-pressed', x === b));
-      applyTheme(map, S); applyYear(map, S, S.year, D.minYear); renderLegend(S); syncURL();
+      applyTheme(map, S); applyYear(map, S, S.year, D.minYear, D.prevYear(S.year)); renderLegend(S); syncURL();
     };
   });
   document.querySelectorAll('.tab').forEach(t => t.onclick = () => {

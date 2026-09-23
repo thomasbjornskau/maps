@@ -76,18 +76,21 @@ export function makeHistory(D) {
     return out;
   }
 
-  // Alle endringer 1. januar i et gitt år
-  function yearSummary(y) {
-    const items = (byYear.get(y) || []).flatMap(describe);
+  // Alle endringer i et år, eller i et spenn av år (når kartet hopper over et hull)
+  function yearSummary(y, from = y) {
+    const items = [];
+    for (let yy = from; yy <= y; yy++) items.push(...(byYear.get(yy) || []).flatMap(describe));
     const major = items.filter(i => !['nummer', 'navn'].includes(i.kind));
     const order = { sammen: 0, deling: 1, avgivelse: 2, overforing: 3 };
     major.sort((a, b) => order[a.kind] - order[b.kind] || a.text.localeCompare(b.text, 'nb'));
     return { major, nummer: items.filter(i => i.kind === 'nummer'), navn: items.filter(i => i.kind === 'navn') };
   }
 
-  function changedCodes(y) {
+  function changedCodes(y, from = y) {
     const out = new Set();
-    for (const ev of byYear.get(y) || []) {
+    const evs = [];
+    for (let yy = from; yy <= y; yy++) evs.push(...(byYear.get(yy) || []));
+    for (const ev of evs) {
       if (ev.t) { ev.t.slice(0, 2).forEach(c => out.add(c)); continue; }
       const olds = new Set(ev.l.map(l => l[0])), news = new Set(ev.l.map(l => l[1]));
       if (olds.size === 1 && news.size === 1) continue;       // bare nytt navn eller nummer

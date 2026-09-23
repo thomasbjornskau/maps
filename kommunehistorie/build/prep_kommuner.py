@@ -6,6 +6,7 @@ Inndata i build/input/:
   Basisdata_0000_Norge_25833_Kommuner_GeoJSON.zip                      – Kartverket, gjeldende
   changes*.json                                                        – Klass 131, endringer (alle filer slås sammen)
   *kommuner_p1838*.geojson (valgfritt)                                 – kommunene i 1838, gir navnene historikken starter med
+  *kommuner_pÅÅÅÅ-..._pÅÅÅÅ-...geojson (valgfritt)                     – eldre kommuneinndelinger fra kart.ssb.no, blir egne tilstander i kartet
   ne_10m_land.geojson                                                  – Natural Earth, grov kystlinje
   Basisdata_0000_Norge_25833_KommunerÅÅÅÅ_FGDB.zip (valgfritt)          – Kartverket, historiske årganger
 
@@ -17,12 +18,12 @@ Bruk:
 
 Utdata i docs/data/: atomer.topo.json, historikk.json, meta.json
 """
-import argparse, collections, glob, gzip, json, shutil, subprocess, sys, tempfile, zipfile, datetime
+import argparse, collections, gc, glob, gzip, json, shutil, subprocess, sys, tempfile, zipfile, datetime
 from pathlib import Path
 import geopandas as gpd, shapely
 from shapely.geometry import box
 from states import build_states, expected_codes
-from atoms import build_atoms
+from atoms import build_atoms, drop_slivers
 from walls import build_walls, names_by_year, events, labels
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -53,7 +54,7 @@ def main():
     ap.add_argument('--toleranse', type=int, default=75, help='forenkling i meter')
     ap.add_argument('--landbuffer', type=int, default=1000, help='hvor langt ut i sjøen murene får gå (m)')
     a = ap.parse_args()
-    errors = []
+    errors, warnings = [], []
     with tempfile.TemporaryDirectory() as tmp:
         gdb_src = next((p for p in [*INPUT.glob('*.gdb'), *INPUT.glob('*.zip')] if not p.name.startswith('Basisdata')), None)
         if not gdb_src: sys.exit('Fant ikke SSBs geodatabase i input/')
@@ -71,6 +72,7 @@ def main():
             bg = gpd.read_file(base[-1], engine='pyogrio', read_geometry=False)
             base_names = dict(zip(bg.komm_nr.astype(str), bg.komm_navn))
         kv_years = {}
+        gc.collect()
         for z in sorted(INPUT.glob('*Kommuner[12][0-9][0-9][0-9]_FGDB.zip')):
             y = int(z.name.split('Kommuner')[1][:4])
             d = Path(tmp) / f'kv{y}'
@@ -78,11 +80,14 @@ def main():
             g = gpd.read_file(next(d.rglob('*.gdb')), layer='kommune', engine='pyogrio', columns=['kommunenummer'])
             kv_years[y] = {c: shapely.union_all(list(gg.geometry)) for c, gg in g.groupby('kommunenummer')}
         print('   Kartverket-årganger:', sorted(kv_years) or 'ingen')
+        har_kv_2021 = 2021 in kv_years
         kj = INPUT.parent / 'kjente_aar.json'
         known = {tuple(k.split('>')): v for k, v in json.load(open(kj, encoding='utf-8')).get('overforinger', {}).items()} if kj.exists() else {}
 
         print('1/5 Tilstander …')
-        states, kv26, by_year, moved, _ = build_states(str(gdb), str(kv), changes, kv_years, known)
+        historical = sorted(q for q in INPUT.glob('*kommuner_p*.geojson') if 'p1838' not in q.name)
+        if historical: print('   Eldre kommuneinndelinger:', [q.name for q in historical])
+        states, kv26, by_year, moved, _ = build_states(str(gdb), str(kv), changes, kv_years, known, historical)
         exp = expected_codes(states, by_year)
         tot0 = sum(p.area for p in states[0]['polys'].values())
         for s in states:
@@ -91,15 +96,33 @@ def main():
             if abs(sum(p.area for p in s['polys'].values()) / tot0 - 1) > 1e-6:
                 errors.append(f"totalareal {s['y0']} avviker")
 
-        print('2/5 Atomer …')
+        print('2/5 Atomer og navnepunkt …')
         atoms = build_atoms(states)
+        del kv_years, kv26
+        gc.collect()
+        atoms, merged = drop_slivers(atoms)
+        gc.collect()
+        if merged: print(f'   {merged} flis-atomer slått inn i naboen (ulik digitalisering mellom kildene)')
         for k, s in enumerate(states):
             ar = collections.Counter()
             for at in atoms: ar[at['c'][k]] += at['g'].area
             for c, g in s['polys'].items():
-                if abs(ar[c] - g.area) > 2000: errors.append(f"atomareal {s['y0']} {c}")
+                d = abs(ar[c] - g.area)
+                # Flisryddingen flytter små arealer mellom naboer; store avvik er en feil
+                if d > 1e6: errors.append(f"atomareal {s['y0']} {c} avviker {round(d / 1e6, 2)} km²")
+                elif d > 5e4: warnings.append(f"atomareal {s['y0']} {c} avviker {round(d / 1e6, 2)} km² (flisrydding)")
+        for w in warnings[:5]: print('   ADVARSEL ' + w)
+        if len(warnings) > 5: print(f'   ADVARSEL … og {len(warnings) - 5} mindre avvik til fra flisryddingen')
         if errors:
             print('\n'.join('FEIL ' + e for e in errors)); sys.exit('Bygget stoppet.')
+
+        ne = gpd.read_file(find('ne_10m_land*.geojson'), engine='pyogrio', bbox=(3, 57.5, 32, 71.5))
+        land = gpd.GeoSeries([shapely.union_all(ne.geometry.values).intersection(box(3, 57.5, 32, 71.5))], crs=4326).to_crs(25833).iloc[0]
+        del ne
+        lab = labels(states, land)
+        for s in states:                       # polygonene trengs ikke videre, bare kodene
+            s['koder'] = set(s['polys']); del s['polys']
+        gc.collect()
 
         print('3/5 Topologi (mapshaper) …')
         def poly_only(g):
@@ -115,25 +138,24 @@ def main():
         r = subprocess.run(cmd, capture_output=True, text=True, cwd=Path(__file__).parent)
         if r.returncode: sys.exit('mapshaper feilet:\n' + r.stderr)
 
-    print('4/5 Murer, navn og hendelser …')
+    print('4/5 Grenselinjer, navn og hendelser …')
     topo = json.load(open(out, encoding='utf-8'))
     codes = [g['properties']['c'].split('|') for g in topo['objects']['atomer']['geometries']]
     if len(codes) != len(atoms): sys.exit('mapshaper mistet atomer')
-    ne = gpd.read_file(find('ne_10m_land*.geojson'), engine='pyogrio', bbox=(3, 57.5, 32, 71.5))
-    land = gpd.GeoSeries([shapely.union_all(ne.geometry.values).intersection(box(3, 57.5, 32, 71.5))], crs=4326).to_crs(25833).iloc[0]
+    gc.collect()
     land_b = land.buffer(a.landbuffer); shapely.prepare(land_b)
     walls, wstats = build_walls(topo, codes, states, land_b)
-    names, per_year, pre_codes = names_by_year(states, by_year, base_names)
-    if pre_codes is not None and pre_codes != set(states[0]['polys']):
-        sys.exit(f"Klass-kjeden fra 1838 ender ikke i {states[0]['y0']}-kommunene: {sorted(pre_codes ^ set(states[0]['polys']))[:10]}")
-    ev = events(by_year, [(x['c'], x['g'].area) for x in atoms], states, {2024: 2022} if 2021 in kv_years else {})
-    lab = labels(states, land)
+    names, per_year, pre_codes, counts = names_by_year(states, by_year, base_names)
+    first_geo = next(s for s in states if 'names' in s)      # første år med navn fra SSB-serien
+    if pre_codes is not None and pre_codes != first_geo['koder']:
+        sys.exit(f"Klass-kjeden ender ikke i {first_geo['y0']}-kommunene: {sorted(pre_codes ^ first_geo['koder'])[:10]}")
+    ev = events(by_year, [(x['c'], x['g'].area) for x in atoms], states, {2024: 2022} if har_kv_2021 else {})
 
     print('5/5 Skriver filer …')
     meta_hist_from = min(int(e['changeOccurred'][:4]) for e in changes) - 1 if base_names else states[0]['y0']
     hist = {
         'tilstander': [{'y0': s['y0'], 'y1': s['y1'], 'kilde': s['kilde']} for s in states],
-        'antall': {y: len(per_year[y]) for y in sorted(per_year)},
+        'antall': {y: counts[y] for y in sorted(counts)},
         'historie_fra': meta_hist_from,
         'navn': names, 'hendelser': ev, 'navnepunkt': lab, 'murer': walls
     }

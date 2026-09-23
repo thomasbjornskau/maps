@@ -8,6 +8,7 @@ hentes fra Kartverkets kommunefil. Da får hele serien én felles geometri, og
 uendrede grenser er identiske i alle år.
 """
 import json, re, collections
+from pathlib import Path
 import geopandas as gpd, pyogrio, shapely
 from shapely.ops import unary_union
 
@@ -33,6 +34,21 @@ def ssb_states(gdb):
     for a, b in zip(out, out[1:]):
         assert a['y1'] + 1 == b['y0'], f"hull mellom {a['lag']} og {b['lag']}"
     return out
+
+
+def historical_states(paths):
+    """Eldre kommuneinndelinger som egne tilstander. Perioden leses av filnavnet,
+    f.eks. kommuner_p1958-01-01_p1959-12-31.geojson → 1958–1959."""
+    out = []
+    for p in paths:
+        m = re.search(r'p(\d{4})-\d\d-\d\d_p(\d{4})', Path(p).name)
+        if not m:
+            continue
+        g = gpd.read_file(p, engine='pyogrio')
+        g['komm_nr'] = g.komm_nr.astype(str).str.zfill(4)
+        polys = {c: shapely.make_valid(unary_union(list(gg.geometry))) for c, gg in g.groupby('komm_nr')}
+        out.append({'y0': int(m.group(1)), 'y1': int(m.group(2)), 'kilde': 'SSB historisk', 'lag': Path(p).name, 'polys': polys})
+    return sorted(out, key=lambda s: s['y0'])
 
 
 def kartverket(path):
@@ -139,10 +155,10 @@ def code_targets(codes, by_year, y0, y1):
     return m
 
 
-def build_states(gdb, kv_path, changes, kv_years=None, known_years=None):
+def build_states(gdb, kv_path, changes, kv_years=None, known_years=None, historical=None):
     """kv_years: {år: {kode: polygon}} fra Kartverkets historiske kommunefiler (valgfritt).
     known_years: {(fra, til): år} for overføringer som bare kan dateres fra merknadene i Klass."""
-    states = ssb_states(gdb)
+    states = historical_states(historical or []) + ssb_states(gdb)
     kv26 = kartverket(kv_path)
     by_year = collections.defaultdict(list)
     for e in changes:
@@ -192,7 +208,7 @@ def build_states(gdb, kv_path, changes, kv_years=None, known_years=None):
 
 def expected_codes(states, by_year):
     """Kodesett per år ut fra 2019-geometrien og Klass, for kontroll."""
-    codes = set(states[21]['polys'])
+    codes = set(next(s for s in states if s['y0'] <= 2019 <= s['y1'])['polys'])
     exp = {}
     for y in range(2020, 2027):
         ev = by_year.get(y, [])

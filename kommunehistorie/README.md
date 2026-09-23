@@ -1,6 +1,6 @@
-# Norges kommuner 1986–2026
+# Norges kommuner 1958–2026
 
-Et 3D-kart over kommuneinndelingen 1. januar hvert år fra 1986 til 2026. Årsvelgeren og et
+Et 3D-kart over kommuneinndelingen 1. januar i de årene vi har grenser for: 1958–1959, 1972–1973 og 1986–2026. Årsvelgeren og et
 fylkesfilter ligger øverst i panelet til venstre, og en tidslinje med avspilling ligger nederst.
 Kommune-, fylkes- og riksgrenser har hver sin farge og tykkelse. Nye grenser er blå og grenser som
 forsvant er røde det året endringen skjedde. Panelet viser hva som endret seg, og slektslinjen
@@ -75,13 +75,24 @@ Kartverket har ikke årganger for 2022 og 2023. Overføringer mellom 2021- og 20
 `build/kjente_aar.json` (merknader i Klass). Resten legges i 2024 og merkes «mellom 2022 og 2024».
 
 **Atomer.** Landet deles i de minste flatene som aldri krysses av en kommunegrense i noe år
-(512 stykker). Hvert atom har én kode per år. En grense går der to naboatomer har ulik kode.
+(948 stykker). Hvert atom har én kode per år. En grense går der to naboatomer har ulik kode.
 Hvert grensestykke lagres én gang, med årene det er kommune-, fylkes- eller riksgrense.
 
 **Grenselinjene** klippes mot en grov kystlinje (Natural Earth 1:10 mill., bufret 1 km), slik at de
 vises på land. Farger og tykkelser ligger i `config.js`. Kommune, fylke og rike har hver sin farge
 (grønn, lilla, nesten svart); blått og rødt er holdt av til nye og forsvunne grenser. Paletten bygger på
 Okabe–Ito, slik at typene skilles også ved nedsatt fargesyn, og tykkelsen skiller dem i tillegg.
+
+**Tidslinjen med hull.** Eldre kommuneinndelinger fra kart.ssb.no legges inn som egne tilstander
+når filene ligger i `build/input/` (filnavnet gir perioden). Tidslinjen går over de årene vi faktisk
+har, med synlig brudd. En grense som finnes både før og etter et hull, regnes som sammenhengende:
+den forsvant ikke, vi mangler bare kartene imellom. Arealoverføringer beregnes heller ikke over hull,
+siden endringene der står i Klass. «Ny» og «forsvant» måles mot forrige år i kartet, og en grense som
+bare skifter type teller ikke som ny.
+
+**Flisrydding.** Der to kilder har digitalisert samme grense litt ulikt, oppstår små flisflater.
+Atomer under 0,06 km², og smale remser under 0,25 km², slås inn i naboen de deler lengst grense med.
+Byggeskriptet advarer om avvik over 0,05 km² per kommune og stopper over 1 km².
 
 **Fylkesfilteret** zoomer til fylket og dekker resten av landet. Det følger et punkt i fylket, slik at
 filteret overlever fylkessammenslåinger: velger du Hordaland i 2019 og blar til 2020, viser kartet Vestland.
@@ -98,8 +109,9 @@ Alstahaug → Vefsn 1995, Rauma → Vestnes 2021) er funnet ved å sammenligne �
   stilspesifikasjon, og data-, historikk- og filtermodulene er testet i Node, men selve renderingen er ikke sett.
 - **Fylkesnavnene** er en tabell i `config.js` over fylkesnumrene 1986–2026, ikke hentet fra Klass.
 - **Arealtall** for overføringer inkluderer sjø.
-- **Før 1986** vises bare historikken, ikke grensene. Kart.ssb.no har grenser per periode helt fra 1838;
-  testfilene for 1958 og 1972 treffer 1986-grensene med 94 % eksakt sammenfall, så serien kan bygges ut bakover.
+- **Årene som mangler** (1960–1971 og 1974–1985) finnes bare i historikken. Kart.ssb.no har grenser per
+  periode helt fra 1838, så serien kan bygges ut ved å legge flere filer i `build/input/`.
+- **Bygget tar noen minutter** og bruker mye minne. I en 4 GB-maskin er det på grensen.
 
 ## Kilder og lisenser
 

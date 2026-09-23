@@ -68,13 +68,14 @@ function width(S, emphasis, extra = 0) {
   })];
 }
 
-export function applyYear(map, S, Y, minYear) {
+export function applyYear(map, S, Y, minYear, prevYear = Y - 1) {
   const T = THEME[S.tema];
   const exists = ['all', ['<=', ['get', 'y0'], Y], ['>=', ['get', 'y1'], Y]];
-  const isNew = ['all', S.ny && Y > minYear, ['==', ['get', 'y0'], Y]];
+  // Ny grense: fantes ikke i forrige tilstand (ikke bare skiftet type, som ved fylkesreformer)
+  const isNew = ['all', S.ny && Y > minYear, ['==', ['get', 'y0'], Y], ['==', ['get', 'nw'], 1]];
   map.setFilter('b-cur', ['all', exists, typeIn(S)]);
   map.setFilter('b-halo', ['all', exists, typeIn(S)]);
-  map.setFilter('b-gone', ['all', S.borte, ['==', ['get', 'y1'], Y - 1], ['!=', ['get', 't'], RIKE]]);
+  map.setFilter('b-gone', ['all', S.borte && prevYear !== null, ['==', ['get', 'y1'], prevYear ?? -1], ['==', ['get', 'gn'], 1], ['!=', ['get', 't'], RIKE]]);
   map.setPaintProperty('b-cur', 'line-color', ['case', isNew, T.ny, ['match', ['get', 't'], FYLKE, T.line[FYLKE], RIKE, T.line[RIKE], T.line[KOMMUNE]]]);
   map.setPaintProperty('b-cur', 'line-width', width(S, isNew));
   map.setPaintProperty('b-halo', 'line-width', width(S, isNew, 2));

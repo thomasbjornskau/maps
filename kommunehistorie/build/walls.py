@@ -44,15 +44,24 @@ def land_runs(coords, land_utm):
 
 
 def state_runs(types, states):
-    """Typer per tilstand → [[fra år, til år, type], …] for sammenhengende like typer."""
-    out = []
+    """Typer per tilstand → [[fra år, til år, type, ny, forsvant], …].
+
+    «ny» betyr at grensen ikke fantes i forrige tilstand, ikke bare at den skiftet type
+    (en kommunegrense som blir fylkesgrense er ikke en ny grense). «forsvant» betyr at den
+    ikke finnes i neste tilstand. Tilstander som følger rett etter hverandre slås sammen
+    selv om det er hull i årstallene: grensen forsvant ikke, vi mangler bare kartene imellom.
+    """
+    out, last_k = [], None
     for k, t in enumerate(types):
-        if not t: continue
+        if not t:
+            continue
         y0, y1 = states[k]['y0'], states[k]['y1']
-        if out and out[-1][2] == t and out[-1][1] + 1 == y0:
+        if out and out[-1][2] == t and last_k == k - 1:
             out[-1][1] = y1
         else:
-            out.append([y0, y1, t])
+            out.append([y0, y1, t, int(k == 0 or not types[k - 1]), 0])
+        last_k = k
+        out[-1][4] = int(k + 1 >= len(types) or not types[k + 1])
     return out
 
 
@@ -83,21 +92,23 @@ def build_walls(topo, codes, states, land_utm):
 
 
 def names_before(base, changes_by_year, first_geo_year):
-    """Navneperioder før geometrien starter: utgangsnavnene (f.eks. 1838) ført fram med Klass."""
-    y_start = min(changes_by_year) - 1 if changes_by_year else first_geo_year
+    """Navneperioder og antall kommuner før geometrien starter: utgangsnavnene
+    (f.eks. 1838) ført fram med Klass-endringene."""
+    years = sorted(y for y in changes_by_year if y < first_geo_year)
+    y_start = (years[0] - 1) if years else first_geo_year - 1
     cur = {c: [n, y_start] for c, n in base.items()}
-    runs = collections.defaultdict(list)
-    for y in sorted(k for k in changes_by_year if k < first_geo_year):
-        ev = changes_by_year[y]
-        for e in ev:
+    runs, counts = collections.defaultdict(list), {}
+    for y in range(y_start, first_geo_year):
+        for e in changes_by_year.get(y, []) if y > y_start else []:
             if e['oldCode'] in cur:
                 n, since = cur.pop(e['oldCode'])
                 runs[e['oldCode']].append([since, y - 1, n])
-        for e in ev:
+        for e in changes_by_year.get(y, []) if y > y_start else []:
             cur[e['newCode']] = [e['newName'], y]
+        counts[y] = len(cur)
     for c, (n, since) in cur.items():
         runs[c].append([since, first_geo_year - 1, n])
-    return runs, set(cur)
+    return runs, set(cur), counts
 
 
 def names_by_year(states, changes_by_year, base_names=None):
@@ -108,21 +119,21 @@ def names_by_year(states, changes_by_year, base_names=None):
         if 'names' in s:
             for y in range(s['y0'], s['y1'] + 1):
                 per_year[y] = dict(s['names'])
-    first = states[0]['y0']
+    first = min(per_year)          # første år med egne navn i geometrien (SSB-serien)
     for y in range(2020, 2027):
         cur = dict(per_year[y - 1])
         ev = changes_by_year.get(y, [])
         for e in ev: cur.pop(e['oldCode'], None)
         for e in ev: cur[e['newCode']] = e['newName']
         per_year[y] = cur
-    for y in range(first + 1, 2020):
+    for y in sorted(y for y in per_year if first < y < 2020):
         for e in changes_by_year.get(y, []):
             if e['newCode'] in per_year[y]:
                 per_year[y][e['newCode']] = e['newName']
     runs = collections.defaultdict(list)
-    pre_codes = None
+    pre_codes, pre_counts = None, {}
     if base_names:
-        pre, pre_codes = names_before(base_names, changes_by_year, first)
+        pre, pre_codes, pre_counts = names_before(base_names, changes_by_year, first)
         for c, r in pre.items():
             runs[c].extend(r)
     for y in sorted(per_year):
@@ -131,7 +142,9 @@ def names_by_year(states, changes_by_year, base_names=None):
             if r and r[-1][2] == n and r[-1][1] == y - 1: r[-1][1] = y
             else: r.append([y, y, n])
     for c in runs: runs[c].sort()
-    return dict(runs), per_year, pre_codes
+    counts = {y: n for y, n in pre_counts.items() if n}
+    counts.update({y: len(v) for y, v in per_year.items()})
+    return dict(runs), per_year, pre_codes, counts
 
 
 def events(changes_by_year, atoms_codes, states, uncertain_from=None):
@@ -154,6 +167,8 @@ def events(changes_by_year, atoms_codes, states, uncertain_from=None):
     klass = {(y, e['oldCode'], e['newCode']) for y, ch in changes_by_year.items() for e in ch}
     for k in range(1, len(states)):
         y = states[k]['y0']
+        if states[k - 1]['y1'] + 1 != y:      # hull i tidslinjen: endringene imellom står i Klass
+            continue
         moved = collections.Counter()
         for codes, area in atoms_codes:
             p, n = codes[k - 1], codes[k]

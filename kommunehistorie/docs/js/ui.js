@@ -7,9 +7,10 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 
 export function renderHeader(D, Y) {
   $('#hYear').textContent = Y;
-  const n = D.counts[Y], p = D.counts[Y - 1];
+  const prev = D.prevYear(Y), n = D.counts[Y], p = prev ? D.counts[prev] : null;
   const diff = p ? n - p : 0;
-  $('#hSub').innerHTML = `${nf.format(n)} kommuner${diff ? ` <span class="${diff < 0 ? 'down' : 'up'}">(${diff > 0 ? '+' : '−'}${Math.abs(diff)})</span>` : ''}`;
+  const since = prev && prev < Y - 1 ? ` siden ${prev}` : '';
+  $('#hSub').innerHTML = `${nf.format(n)} kommuner${diff ? ` <span class="${diff < 0 ? 'down' : 'up'}">(${diff > 0 ? '+' : '−'}${Math.abs(diff)}${esc(since)})</span>` : ''}`;
 }
 
 // Årstall i kartets periode er knapper som hopper dit; eldre årstall er bare tekst.
@@ -18,15 +19,20 @@ const entry = (y, texts, minYear) => `<li>${y >= minYear
   : `<span class="yr old" title="Før kartets periode – bare historikk">${y}</span>`}<div>${texts.map(t => `<p>${esc(t)}</p>`).join('')}</div></li>`;
 
 export function renderYear(H, D, Y, fylke = null) {
-  const all = H.yearSummary(Y);
+  const prev = D.prevYear(Y), from = prev && prev < Y - 1 ? prev + 1 : Y;
+  const all = H.yearSummary(Y, from);
   const keep = i => !fylke || i.codes.some(c => c.slice(0, 2) === fylke);
   const s = { major: all.major.filter(keep), nummer: all.nummer.filter(keep), navn: all.navn.filter(keep) };
   const where = fylke ? ` i ${FYLKER[fylke] || fylke}` : '';
-  let html = `<div class="hh"><span class="lbl">Endringer 1. januar ${Y}${esc(where)}</span></div>`;
+  const head = from === Y ? `Endringer 1. januar ${Y}${where}` : `Endringer ${from}–${Y}${where}`;
+  let html = `<div class="hh"><span class="lbl">${esc(head)}</span></div>`;
+  if (from !== Y) html += `<p class="gap">Kartet hopper fra ${prev} til ${Y}. Årene imellom finnes i historikken, men ikke som grenser.</p>`;
   if (!s.major.length && !s.nummer.length && !s.navn.length) {
-    html += `<p class="muted">${Y === D.minYear ? `Kartet starter her. Grensene går ikke lenger tilbake, men klikk på en kommune for å se historien helt fra ${D.histFrom}.` : `Ingen endringer i kommuneinndelingen${esc(where)} dette året.`}</p>`;
+    html += `<p class="muted">${Y === D.minYear ? `Kartet starter her. Klikk på en kommune for å se historien helt fra ${D.histFrom}.` : `Ingen endringer i kommuneinndelingen${esc(where)} dette året.`}</p>`;
   } else {
-    if (s.major.length) html += `<ul class="ev">${s.major.map(i => `<li class="${i.kind}">${esc(i.text)}</li>`).join('')}</ul>`;
+    const cap = 40, major = s.major.slice(0, cap);
+    if (major.length) html += `<ul class="ev">${major.map(i => `<li class="${i.kind}">${esc(i.text)}</li>`).join('')}</ul>`;
+    if (s.major.length > cap) html += `<details><summary>… og ${s.major.length - cap} endringer til</summary><ul class="ev small">${s.major.slice(cap).map(i => `<li>${esc(i.text)}</li>`).join('')}</ul></details>`;
     if (s.nummer.length) html += `<details><summary>${s.nummer.length} ${s.nummer.length === 1 ? 'kommune' : 'kommuner'} fikk nytt kommunenummer</summary><ul class="ev small">${s.nummer.map(i => `<li>${esc(i.text)}</li>`).join('')}</ul></details>`;
     if (s.navn.length) html += `<details><summary>${s.navn.length} ${s.navn.length === 1 ? 'navneendring' : 'navneendringer'}</summary><ul class="ev small">${s.navn.map(i => `<li>${esc(i.text)}</li>`).join('')}</ul></details>`;
   }
@@ -58,18 +64,23 @@ export function renderLegend(S) {
   $('#legendBox').innerHTML = `<h3>Grenser</h3>
     ${row(T.line[KOMMUNE], 'Kommunegrense', 2, S.kommune)}${row(T.line[FYLKE], 'Fylkesgrense', 3.5, S.fylkeL)}${row(T.line[RIKE], 'Riksgrense', 5, S.rike)}
     <h3 class="h3b">Endringer dette året</h3>
-    ${row(T.ny, 'Ny grense', 3, S.ny)}${row(T.borte, 'Grense som forsvant', 3, S.borte, true)}
+    ${row(T.ny, 'Ny grense siden forrige år i kartet', 3, S.ny)}${row(T.borte, 'Grense som forsvant', 3, S.borte, true)}
     <div class="lg${S.ny ? '' : ' off'}"><i class="fillsw" style="background:${T.tint};opacity:${T.tintOp + .2}"></i>Kommune som ble endret</div>
     <p>Grensene er vist på land. Grensene i sjøen er klippet bort grovt.</p>`;
 }
 
 export function renderTicks(H, D) {
-  const span = D.maxYear - D.minYear;
-  const w = y => {
-    const s = H.yearSummary(y), n = s.major.length * 3 + s.nummer.length * .25 + s.navn.length * .3;
-    return Math.min(22, 4 + Math.log2(1 + n) * 3.2);
-  };
-  $('#ticks').innerHTML = H.eventYears.filter(y => y >= D.minYear && y <= D.maxYear)
-    .map(y => `<i style="--f:${(y - D.minYear) / span};height:${w(y)}px" title="${y}"></i>`).join('')
-    + [1990, 2000, 2010, 2020].map(y => `<b style="--f:${(y - D.minYear) / span}">${y}</b>`).join('');
+  const n = D.years.length - 1;
+  const pos = i => i / n;
+  const marks = D.years.map((y, i) => {
+    const prev = D.prevYear(y), from = prev && prev < y - 1 ? prev + 1 : y;
+    const s = H.yearSummary(y, from);
+    const w = s.major.length * 3 + s.nummer.length * .25 + s.navn.length * .3;
+    return w ? `<i style="--f:${pos(i)};height:${Math.min(22, 4 + Math.log2(1 + w) * 3.2)}px" title="${from === y ? y : from + '–' + y}"></i>` : '';
+  }).join('');
+  // brudd i tidslinjen der årene ikke henger sammen
+  const breaks = D.years.map((y, i) => (i && D.years[i - 1] < y - 1 ? `<u style="--f:${(pos(i) + pos(i - 1)) / 2}"></u>` : '')).join('');
+  const labels = D.years.filter((y, i) => i === 0 || i === n || y % 10 === 0 || D.years[i - 1] < y - 1)
+    .map(y => `<b style="--f:${pos(D.index.get(y))}">${y}</b>`).join('');
+  $('#ticks').innerHTML = marks + breaks + labels;
 }

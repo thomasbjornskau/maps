@@ -24,8 +24,10 @@ function bbox(g) {
 }
 
 export function prepare(topo, hist) {
-  const states = hist.tilstander, yearState = {};
-  states.forEach((s, k) => { for (let y = s.y0; y <= s.y1; y++) yearState[y] = k; });
+  const states = hist.tilstander, yearState = {}, years = [];
+  states.forEach((s, k) => { for (let y = s.y0; y <= s.y1; y++) { yearState[y] = k; years.push(y); } });
+  years.sort((a, b) => a - b);
+  const index = new Map(years.map((y, i) => [y, i]));
   const atoms = topojson.feature(topo, topo.objects.atomer);
   atoms.features.forEach((f, i) => {
     const cs = f.properties.c.split('|'), p = { i };
@@ -50,7 +52,10 @@ export function prepare(topo, hist) {
   return {
     states, yearState, atoms, owners, arcs: decodeArcs(topo), walls: hist.murer, labelsByState,
     names: hist.navn, events: hist.hendelser, counts: hist.antall,
-    minYear: states[0].y0, maxYear: states[states.length - 1].y1, histFrom: hist.historie_fra ?? states[0].y0
+    years, index,
+    prevYear: y => years[index.get(y) - 1] ?? null,
+    nextYear: y => years[index.get(y) + 1] ?? null,
+    minYear: years[0], maxYear: years[years.length - 1], histFrom: hist.historie_fra ?? years[0]
   };
 }
 
@@ -62,8 +67,8 @@ export function lineFeatures(D) {
     const c = D.arcs[ai], lines = land.map(([i0, i1]) => c.slice(i0, i1 + 2));
     const own = D.owners.get(ai) || [];
     const a = own[0] ?? -1, b = own.length > 1 ? own[1] : -1;
-    for (const [y0, y1, t] of runs) {
-      feats.push({ type: 'Feature', properties: { y0, y1, t, a, b }, geometry: { type: 'MultiLineString', coordinates: lines } });
+    for (const [y0, y1, t, nw = 0, gn = 0] of runs) {
+      feats.push({ type: 'Feature', properties: { y0, y1, t, nw, gn, a, b }, geometry: { type: 'MultiLineString', coordinates: lines } });
     }
   }
   return { type: 'FeatureCollection', features: feats };
